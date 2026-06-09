@@ -47,7 +47,7 @@ top-level patcher it lives in).
 ## Install (dev / local)
 
 ```
-git clone https://github.com/gluon/max-mcp-server
+git clone https://github.com/Gluon/max-mcp-server
 cd max-mcp-server
 uv run python -m maxmsp_mcp.server      # or: pip install -e . && maxmsp-mcp
 ```

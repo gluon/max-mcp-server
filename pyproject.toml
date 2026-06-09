@@ -14,7 +14,7 @@ maxmsp-mcp = "maxmsp_mcp.server:main"
 
 [project.urls]
 Homepage = "https://structure-void.com"
-Source = "https://github.com/gluon/max-mcp-server"
+Source = "https://github.com/Gluon/max-mcp-server"
 
 [build-system]
 requires = ["hatchling"]
