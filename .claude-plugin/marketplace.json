@@ -1,0 +1,7 @@
+{
+  "name": "maxmsp-marketplace",
+  "owner": "gluon",
+  "plugins": [
+    { "name": "maxmsp", "source": "./", "description": "Max/MSP MCP server + skill." }
+  ]
+}

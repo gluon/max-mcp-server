@@ -1,0 +1,8 @@
+{
+  "name": "maxmsp",
+  "version": "0.1.0",
+  "description": "Build and drive Max/MSP patches from Claude (thispatcher over OSC/UDP, no externals).",
+  "author": "Julien Bayle",
+  "skills": ["./skills/maxmsp"],
+  "mcp": "./.mcp.json"
+}
