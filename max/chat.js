@@ -21,7 +21,7 @@ const path = require("path");
 // ---------------------------------------------------------------------------
 const DEFAULTS = {
     port: 5173,
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-5",
     max_tokens: 1500,
     anthropic_api_key: "",
     api_url: "https://api.anthropic.com/v1/messages",
