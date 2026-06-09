@@ -1,6 +1,6 @@
 """maxmsp-mcp — drive Max/MSP patches from an MCP client.
 
-Architecture (parallel to jfboisvenue/pd-mcp-server, adapted to Max):
+Architecture:
 
     MCP client (stdio, JSON-RPC)
           v
@@ -143,8 +143,7 @@ def max_disconnect(from_name: str, outlet: int, to_name: str, inlet: int) -> str
 
 @mcp.tool()
 def max_delete(name: str) -> str:
-    """Delete a single object by name. (Max supports single-object delete,
-    unlike Pd vanilla.)"""
+    """Delete a single object by name."""
     _require_init()
     tx.send("/delete", name)
     state.forget(name)

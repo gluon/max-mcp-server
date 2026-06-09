@@ -1,6 +1,5 @@
-"""Orientation guide returned by max_init. Mirrors the Pd project's pd_init:
-one server-authored source of truth so the agent does not infer conventions
-from individual docstrings.
+"""Orientation guide returned by max_init: one server-authored source of truth
+so the agent does not infer conventions from individual docstrings.
 """
 
 GUIDE = """\

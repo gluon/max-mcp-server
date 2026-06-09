@@ -1,5 +1,5 @@
 """Round-trip tests that run WITHOUT Max, using a mock UDP listener and a
-fake transport, mirroring the Pd project's mock-[netreceive] approach.
+fake transport.
 """
 
 import socket

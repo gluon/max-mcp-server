@@ -1,59 +1,66 @@
 # maxmsp-mcp
 
-A reliable [Model Context Protocol](https://modelcontextprotocol.io) server for
-[Max/MSP](https://cycling74.com). It lets an MCP client (Claude Desktop, Claude
-Code, etc.) build and drive Max patches in natural language: create objects,
-wire them together, toggle audio, and drive a running patch.
+Build and drive [Max/MSP](https://cycling74.com) patches from an MCP client
+(Claude Desktop, Claude Code, the MCP Inspector, ...) in natural language. The
+agent creates objects, wires them, toggles audio, sets message content, and
+**reads the live patch back** to see what is actually there before it edits.
 
-Spiritual port of [jfboisvenue/pd-mcp-server](https://github.com/jfboisvenue/pd-mcp-server)
-to the Max world. Same idea, native Max mechanisms.
+Pure Max mechanisms, no third-party externals, no `mxj`:
+- **Writing** the patch uses `[thispatcher]` scripting (`script newdefault`,
+  `script connect`, `script delete`, `script send`).
+- **Reading** the patch uses a `[v8]` JavaScript object that walks the patcher
+  via the official Max JS API (`boxtext`, `patchcords`) and returns it as JSON.
+- **Transport** is OSC over UDP between the Python server and a vanilla
+  `[udpreceive]` / `[udpsend]` pair in the host patch.
 
-## Why this design is reliable
+## Design notes
 
-It uses Max's own dynamic-patching object, **`thispatcher`** (`script
-newdefault`, `script connect`, `script disconnect`, `script delete`), driven by
-**OSC over UDP** into a vanilla **`[udpreceive]`**. That means:
-
-- **No third-party externals** (no CNMAT odot, no sadam, no net libs).
-- **No mxj.**
-- **No intermediate daemon.** The MCP server talks straight to `[udpreceive]`.
-- **Stable object addressing.** Every object gets a scripting *name*
-  (`obj_0`, `obj_1`, ...). You wire and delete by name, so ids never drift on
-  manual edits.
-
-Two things this does *better* than the Pd version, by virtue of Max:
-
-- **Single-object delete** (`script delete <name>`). Pd vanilla cannot delete
-  one object; this can.
-- **No index resync.** Names are stable, so there is no creation-index counter
-  to realign after a hand edit.
+- **Stable addressing.** Every object the server creates gets a scripting
+  *name* (`obj_0`, `obj_1`, ...). You wire, set and delete by name, so the
+  mapping never drifts when the user edits the patch by hand.
+- **Single-object delete.** `script delete <name>` removes exactly one object.
+- **Closed loop.** `max_dump_patch` and `max_verify` let the agent confirm its
+  own work and discover objects the user added by hand, instead of building
+  blind.
+- **Machinery stays hidden.** Plumbing objects carry `mcp_*` scripting names and
+  are filtered out of every dump, so the agent only ever sees the musical patch.
 
 ## Architecture
 
 ```
-Claude / MCP client
-       |  (stdio, JSON-RPC)
-       v
-maxmsp_mcp.server  --OSC over UDP-->  [udpreceive 7400]   (max/mcp_host.maxpat)
-                                            |
-                                       [route /newdefault /connect /disconnect /delete /dsp /send]
-                                            |
-                                       [prepend script ...] -> [thispatcher]
+MCP client (stdio, JSON-RPC)
+      |
+      v
+maxmsp_mcp.server
+      |  write: OSC/UDP -> [udpreceive 7400] -> [route ...] -> [thispatcher]
+      |  read:  [v8 dump.js] -> [udpsend 127.0.0.1 7401] -> OSC/UDP
+      v
+   Max patch (max/mcp_host.maxpat)
 ```
 
-Created objects land in the host patcher itself (`thispatcher` targets the
-top-level patcher it lives in).
+Objects land in the host patcher itself (`thispatcher` targets the patcher it
+lives in).
 
-## Install (dev / local)
+## Requirements
 
-```
-git clone https://github.com/Gluon/max-mcp-server
+- Max **8+** (`thispatcher`, vanilla `udpreceive`/`udpsend`, the `[v8]` engine).
+- Python **3.10+** for the MCP server.
+- [`uv`](https://github.com/astral-sh/uv) (recommended) or `pip`.
+
+No external Max packages.
+
+## Install
+
+```bash
+git clone https://github.com/gluon/max-mcp-server
 cd max-mcp-server
-uv run python -m maxmsp_mcp.server      # or: pip install -e . && maxmsp-mcp
+uv venv && source .venv/bin/activate
+uv pip install -e .
 ```
 
-Register it in `~/Library/Application Support/Claude/claude_desktop_config.json`
-(macOS) or the Linux/Windows equivalent:
+Register the server with your MCP client. For Claude Desktop, add to its config
+(use the **absolute** path to `uv`, from `which uv`; GUI launchers do not inherit
+your shell `PATH`):
 
 ```json
 {
@@ -62,38 +69,36 @@ Register it in `~/Library/Application Support/Claude/claude_desktop_config.json`
       "command": "/absolute/path/to/uv",
       "args": ["--directory", "/absolute/path/to/max-mcp-server",
                "run", "python", "-m", "maxmsp_mcp.server"],
-      "env": { "MAX_HOST": "127.0.0.1", "MAX_PORT": "7400" }
+      "env": { "MAX_HOST": "127.0.0.1", "MAX_PORT": "7400", "MAX_RETURN_PORT": "7401" }
     }
   }
 }
 ```
 
-Use the **absolute** path to `uv` (`which uv`); GUI launchers do not inherit the
-shell `PATH`.
+**Then open `max/mcp_host.maxpat` in Max and leave it open.** Add the `max/`
+folder to the Max search path (Options > File Preferences) so `[v8 dump.js]`
+resolves. The server talks to this patch; with it closed, messages go nowhere.
 
-**Then open `max/mcp_host.maxpat` in Max** and leave it open. The server needs
-something to talk to.
+### Try it without a chat client
 
-## Requirements
+The [MCP Inspector](https://modelcontextprotocol.io) drives the tools by hand:
 
-- Max **8+** (uses `thispatcher` scripting + vanilla `udpreceive`).
-- Python **3.10+** for the MCP server.
-- [`uv`](https://github.com/astral-sh/uv) (recommended) or `pip`.
-
-No external Max packages required.
+```bash
+npx @modelcontextprotocol/inspector \
+  uv --directory /absolute/path/to/max-mcp-server run python -m maxmsp_mcp.server
+```
 
 ## Tools
 
-The agent must call **`max_init` first**; every other tool refuses until it
-has. `max_init` returns the orientation guide (wire model, id contract, object
-cheat sheet, cookbook), so the model has a single server-authored source of
-truth.
+Call **`max_init` first**; every other tool refuses until it has. `max_init`
+returns the orientation guide (wire model, naming contract, object cheat sheet,
+cookbook) so the model has one server-authored source of truth.
 
 | Tool                  | What it does |
 | --------------------- | ------------ |
 | `max_init`            | **Mandatory first call.** Returns the orientation guide and unlocks the rest |
 | `max_create_object`   | Create `[maxclass args...]` at (x,y); returns its scripting name |
-| `max_create_message`  | Create a message box |
+| `max_create_message`  | Create a message box and set its content |
 | `max_create_comment`  | Create a text comment |
 | `max_create_toggle`   | Create a `[toggle]` |
 | `max_create_bang`     | Create a `[button]` |
@@ -103,11 +108,11 @@ truth.
 | `max_disconnect`      | Remove a connection |
 | `max_delete`          | Delete a single object by name |
 | `max_set_dsp`         | Start/stop global audio DSP |
-| `max_send`            | Forward a message to a named `[receive]` (v0.1 stub, see below) |
+| `max_send`            | Forward a message to a named `[receive]` (see limitations) |
 | `max_clear_canvas`    | Delete every object this server created |
-| `max_get_state`       | List objects the server has created |
-| `max_dump_patch`      | **Read the live patch back** (objects + connections, hand-added included) |
-| `max_verify`          | Dump and check that everything the server created is actually present |
+| `max_get_state`       | List what the server has created |
+| `max_dump_patch`      | Read the live patch back (objects + connections, hand-added included) |
+| `max_verify`          | Dump and check that everything the server created is present |
 
 ### Example: 440 Hz sine to the DAC
 
@@ -121,47 +126,53 @@ max_connect  obj_1 0 -> obj_2 1      (right)
 max_set_dsp  on=true
 ```
 
-## Testing (without Max)
+## Patch read-back
 
-The OSC wire format and the server bookkeeping are covered by tests that run
-without Max, using a real loopback UDP socket and a fake transport:
+`[v8 dump.js]` walks the patcher and sends its full state (objects +
+connections) as OSC to the server on **port 7401**.
 
+- `max_dump_patch` returns every object (`varname`, `maxclass`, `text`, `rect`)
+  and every connection, including objects the user added by hand.
+- `max_verify` dumps and reports any server-created object missing from the
+  patch, so the agent can rebuild it.
+
+Objects related by **name** (e.g. `[buffer~ snd]` and `[record~ snd]`) are
+linked by that shared name in their text, not by a patch cord — read the object
+text, not just the connections, to see such relationships.
+
+If text comes back empty, set `DEBUG = 1` at the top of `max/dump.js`, save, and
+watch the Max Console on a bang.
+
+## Configuration
+
+| Variable          | Default     | Meaning |
+| ----------------- | ----------- | ------- |
+| `MAX_HOST`        | `127.0.0.1` | Where Max listens |
+| `MAX_PORT`        | `7400`      | `[udpreceive]` port (writing) |
+| `MAX_RETURN_PORT` | `7401`      | `[udpsend]` port (reading) |
+
+Change a port in both the env var and the matching object in the host patch.
+
+## Testing
+
+The OSC wire format, the read-back decoding, and the server bookkeeping are
+covered by tests that run without Max (loopback UDP + a fake transport):
+
+```bash
+uv pip install pytest
+uv run pytest -q
 ```
-pip install pytest
-python -m pytest tests/ -v
-```
 
-## Patch read-back (v0.2, closed loop)
+## Limitations
 
-Earlier MCP-for-patcher tools (including the Pd one) are open-loop: the server
-mirrors what it created but never reads the patch back, so the agent cannot see
-hand edits or confirm its own work. This one closes the loop.
-
-A `[v8 dump.js]` in the host patch walks the patcher and sends its full state
-(objects + connections) as OSC to the server on **port 7401**. Two tools use it:
-
-- `max_dump_patch` — see every object and connection in the patch, including
-  ones the user added by hand.
-- `max_verify` — check that everything the server created is actually present.
-
-Plumbing objects carry `mcp_*` scripting names and are filtered out of dumps, so
-the agent only sees the musical patch.
-
-`dump.js` must sit where Max can find it (next to `mcp_host.maxpat`, or add its
-folder in Options > File Preferences). If text comes back empty, set `DEBUG = 1`
-at the top of `dump.js` and watch the Max Console on a bang.
-
-
-
-- **`max_send` is a stub.** `/send` currently prints to the Max console. To
-  actually drive a live `[receive <name>]`, wire `[forward]` off the `/send`
-  outlet in `max/mcp_host.maxpat`. (Kept honest until validated.)
-- **No read-back.** The server mirrors what it created; it does not query Max.
-  A future v0.2 can use Node for Max (`node.script` + `max-api`) for bidirectional
-  state and live introspection.
-- Default transport is **UDP on 7400**. Change the `[udpreceive]` argument and
-  `MAX_PORT` together to move it.
+- **`max_send` is a stub.** `/send` currently prints to the Max Console. To
+  drive a live `[receive <name>]`, wire `[forward]` off the `/send` outlet in
+  `max/mcp_host.maxpat`.
+- **Dumps are single-datagram.** Very large patches may exceed one UDP packet;
+  chunking is planned.
+- Objects created by hand have no scripting name, so they appear in dumps with a
+  `#index` id and their text rather than a stable name.
 
 ## License
 
-MIT. Concept inspired by jfboisvenue/pd-mcp-server (MIT).
+MIT — see `LICENSE`.

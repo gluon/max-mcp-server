@@ -1,8 +1,7 @@
 """Server-side mirror of what we created in Max.
 
-Unlike the Pd version which mirrors creation *indices* (and can drift), we
-assign stable scripting *names* (obj_0, obj_1, ...). Max addresses objects by
-these names via [thispatcher], so the mapping never drifts on manual edits.
+We assign stable scripting *names* (obj_0, obj_1, ...). Max addresses objects
+by these names via [thispatcher], so the mapping never drifts on manual edits.
 """
 
 from __future__ import annotations
