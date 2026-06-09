@@ -17,6 +17,7 @@ scripting names assigned here (obj_0, obj_1, ...).
 from __future__ import annotations
 
 import json
+import os
 from typing import List, Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -263,6 +264,65 @@ def max_verify() -> str:
     if also_present:
         out.append("other named objects in the patch (hand-added): " + ", ".join(also_present))
     return "\n".join(out)
+
+
+_OBJ_DB = None
+_OBJ_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "objects.json")
+
+
+def _obj_db() -> dict:
+    global _OBJ_DB
+    if _OBJ_DB is None:
+        try:
+            with open(_OBJ_DB_PATH, "r", encoding="utf-8") as f:
+                _OBJ_DB = json.load(f)
+        except OSError:
+            _OBJ_DB = {}
+    return _OBJ_DB
+
+
+def _format_doc(o: dict) -> str:
+    lines = [f"{o['name']} - {o.get('digest', '')}".rstrip(" -")]
+    if o.get("module") or o.get("category"):
+        lines.append(f"  module: {o.get('module', '?')}  category: {o.get('category', '?')}")
+
+    def block(title, items, show_optional=False):
+        if not items:
+            return
+        lines.append(title + ":")
+        for i, it in enumerate(items):
+            label = it.get("name") or str(i)
+            opt = " (optional)" if show_optional and it.get("optional") else ""
+            d = (" - " + it["digest"]) if it.get("digest") else ""
+            t = f" [{it['type']}]" if it.get("type") else ""
+            lines.append(f"  {i}: {label}{t}{opt}{d}")
+
+    block("args", o.get("args"), show_optional=True)
+    block("inlets", o.get("inlets"))
+    block("outlets", o.get("outlets"))
+    block("attributes", o.get("attributes"))
+    block("messages", o.get("messages"))
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def max_doc(name: str) -> str:
+    """Look up the official reference for a Max object: its arguments, inlets,
+    outlets, attributes and messages. Call this whenever you are unsure of an
+    object's signature (inlet/outlet order, argument types, attribute names)
+    instead of guessing."""
+    import difflib
+
+    db = _obj_db()
+    if not db:
+        return ("No object database loaded. Build it with "
+                "tools/build_maxref_db.py to enable signature lookups.")
+    o = db.get(name)
+    if o:
+        return _format_doc(o)
+    close = difflib.get_close_matches(name, list(db.keys()), n=6, cutoff=0.5)
+    hint = f" Closest matches: {', '.join(close)}." if close else ""
+    return f"'{name}' is not in the reference database.{hint}"
 
 
 def main() -> None:

@@ -11,6 +11,8 @@ cheat-sheet, and a cookbook. Follow it over anything you might infer.
 - Outlets and inlets are **0-indexed, left to right**, exactly as Max counts.
 - Before extending or editing an existing patch, **read it back first** so you
   build on what is really there, including objects the user added by hand.
+- **When unsure of an object's signature** (inlet/outlet order, argument types,
+  attribute names), **look it up** in the object reference rather than guessing.
 
 ## Max execution model (get this right)
 

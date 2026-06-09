@@ -41,6 +41,37 @@ function loadConfig() {
 }
 const CONFIG = loadConfig();
 
+// Object reference database (built by tools/build_maxref_db.py). Optional.
+let OBJ_DB = null;
+function objDb() {
+    if (OBJ_DB === null) {
+        const candidates = [
+            path.join(__dirname, "..", "maxmsp_mcp", "objects.json"),
+            path.join(__dirname, "objects.json"),
+        ];
+        OBJ_DB = {};
+        for (const c of candidates) {
+            try { OBJ_DB = JSON.parse(fs.readFileSync(c, "utf8")); break; } catch (e) {}
+        }
+    }
+    return OBJ_DB;
+}
+function formatDoc(o) {
+    const out = [(o.name + " - " + (o.digest || "")).replace(/ -\s*$/, "")];
+    const block = (title, items) => {
+        if (!items || !items.length) return;
+        out.push(title + ":");
+        items.forEach((it, i) => {
+            const t = it.type ? " [" + it.type + "]" : "";
+            const d = it.digest ? " - " + it.digest : "";
+            out.push("  " + i + ": " + (it.name || i) + t + d);
+        });
+    };
+    block("args", o.args); block("inlets", o.inlets); block("outlets", o.outlets);
+    block("attributes", o.attributes); block("messages", o.messages);
+    return out.join("\n");
+}
+
 // ---------------------------------------------------------------------------
 // Patch state (stable scripting names, mirrors the Python server)
 // ---------------------------------------------------------------------------
@@ -94,6 +125,8 @@ const TOOLS = [
       input_schema: { type: "object", properties: {} } },
     { name: "clear_canvas", description: "Delete every object this session created.",
       input_schema: { type: "object", properties: {} } },
+    { name: "lookup_object", description: "Look up an object's official reference (arguments, inlets, outlets, attributes, messages). Call this whenever unsure of a signature instead of guessing.",
+      input_schema: { type: "object", properties: { name: { type: "string", description: "the Max object name, e.g. groove~" } }, required: ["name"] } },
 ];
 
 // Numeric tokens must reach Max as ints/floats, not quoted symbols, or a
@@ -145,6 +178,15 @@ async function execTool(name, input) {
             created.forEach((nm) => { Max.outlet("/delete", nm); n++; });
             created.clear(); counter = 0;
             return "cleared " + n + " object(s)";
+        }
+        case "lookup_object": {
+            const db = objDb();
+            if (!db || !Object.keys(db).length) return "No object database; build it with tools/build_maxref_db.py.";
+            const o = db[input.name];
+            if (o) return formatDoc(o);
+            const keys = Object.keys(db);
+            const close = keys.filter(k => k.indexOf(input.name) !== -1).slice(0, 6);
+            return "'" + input.name + "' not found." + (close.length ? " Similar: " + close.join(", ") : "");
         }
         default:
             return "unknown tool: " + name;

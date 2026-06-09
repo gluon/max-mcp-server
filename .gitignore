@@ -9,3 +9,6 @@ build/
 # in-Max chat secrets / node deps
 max/chat.config.json
 max/node_modules/
+
+# generated object reference DB (machine-specific, may include private objects)
+maxmsp_mcp/objects.json
