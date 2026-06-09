@@ -5,3 +5,7 @@ dist/
 build/
 *.egg-info/
 .pytest_cache/
+
+# in-Max chat secrets / node deps
+max/chat.config.json
+max/node_modules/

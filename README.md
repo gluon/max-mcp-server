@@ -143,7 +143,34 @@ text, not just the connections, to see such relationships.
 If text comes back empty, set `DEBUG = 1` at the top of `max/dump.js`, save, and
 watch the Max Console on a bang.
 
-## Configuration
+## In-Max chat (v0.3)
+
+A chat window lives inside Max itself, with no external client. `[node.script
+chat.js]` runs a small local HTTP server, `[jweb]` displays the chat UI pointed
+at it, and the backend talks to an LLM, executes its tool calls through the same
+`[thispatcher]` plumbing, and can read the patch back via `[v8 dump.js]`.
+
+Setup:
+
+1. Copy the config and add your key (kept out of git):
+   ```bash
+   cp max/chat.config.example.json max/chat.config.json
+   # edit max/chat.config.json -> anthropic_api_key
+   ```
+2. Open `max/mcp_host.maxpat`. `[node.script chat.js]` autostarts and prints
+   `serving on http://127.0.0.1:5173` in the Max Console.
+3. The `[jweb]` object shows the chat. Type, e.g., "build a 440 Hz sine into the
+   DAC and start audio", and watch the patch build.
+
+The LLM backend is one function, `callLLM()` in `chat.js`. To run on a **local
+model** (e.g. Gemma) instead of the Anthropic API, point `api_url` at a local
+OpenAI-compatible endpoint (`mlx_lm.server`, LM Studio, Ollama) and adjust the
+request/response shape in that one function. The tool layer is unchanged.
+
+The in-Max chat uses API credits; external MCP clients use your Claude plan. The
+two facades share the same command vocabulary and host patch.
+
+
 
 | Variable          | Default     | Meaning |
 | ----------------- | ----------- | ------- |

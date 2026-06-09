@@ -1,0 +1,7 @@
+{
+  "name": "maxmsp-mcp-chat",
+  "version": "0.3.0",
+  "description": "In-Max chat backend for maxmsp-mcp (Node for Max).",
+  "main": "chat.js",
+  "private": true
+}

@@ -13,7 +13,7 @@
 			80.0,
 			80.0,
 			1060.0,
-			600.0
+			820.0
 		],
 		"default_fontsize": 12.0,
 		"default_fontface": 0,
@@ -300,17 +300,57 @@
 			},
 			{
 				"box": {
+					"id": "obj-16",
+					"maxclass": "newobj",
+					"numinlets": 1,
+					"numoutlets": 2,
+					"patching_rect": [
+						40.0,
+						440.0,
+						300.0,
+						22.0
+					],
+					"text": "node.script chat.js @autostart 1 @watch 1",
+					"outlettype": [
+						"",
+						""
+					],
+					"varname": "mcp_node"
+				}
+			},
+			{
+				"box": {
+					"id": "obj-17",
+					"maxclass": "jweb",
+					"numinlets": 1,
+					"numoutlets": 2,
+					"patching_rect": [
+						40.0,
+						480.0,
+						380.0,
+						300.0
+					],
+					"outlettype": [
+						"",
+						""
+					],
+					"varname": "mcp_jweb",
+					"url": "http://127.0.0.1:5173"
+				}
+			},
+			{
+				"box": {
 					"id": "obj-14",
 					"maxclass": "comment",
 					"numinlets": 1,
 					"numoutlets": 0,
 					"patching_rect": [
-						40.0,
-						360.0,
-						900.0,
+						440.0,
+						400.0,
+						580.0,
 						40.0
 					],
-					"text": "maxmsp-mcp host (v0.2.1). Keep open. Machinery is varname mcp_* (filtered from dumps). /dump -> [v8 dump.js] reads boxtext + patchcords. /setbox sets message content. /send is a print stub.",
+					"text": "maxmsp-mcp host (v0.3). Keep open. Machinery is varname mcp_* (filtered from dumps). External clients use [udpreceive]/[udpsend]; the in-Max chat uses [node.script chat.js] + [jweb]. Both drive the same [thispatcher].",
 					"varname": "mcp_note"
 				}
 			}
@@ -320,6 +360,18 @@
 				"patchline": {
 					"source": [
 						"obj-1",
+						0
+					],
+					"destination": [
+						"obj-2",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-16",
 						0
 					],
 					"destination": [
@@ -516,6 +568,18 @@
 					],
 					"destination": [
 						"obj-13",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-12",
+						0
+					],
+					"destination": [
+						"obj-16",
 						0
 					]
 				}

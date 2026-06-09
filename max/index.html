@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>maxmsp-mcp chat</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column;
+    font: 13px/1.5 -apple-system, "Helvetica Neue", Arial, sans-serif;
+    background: #1b1b1d; color: #e7e7ea;
+  }
+  #log { flex: 1; overflow-y: auto; padding: 14px; }
+  .msg { max-width: 88%; margin: 8px 0; padding: 8px 11px; border-radius: 12px; white-space: pre-wrap; word-wrap: break-word; }
+  .user { margin-left: auto; background: #3a6df0; color: #fff; border-bottom-right-radius: 3px; }
+  .assistant { margin-right: auto; background: #2a2a2e; border-bottom-left-radius: 3px; }
+  .sys { text-align: center; color: #8a8a90; font-size: 11px; margin: 6px 0; }
+  #bar { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #2e2e33; background: #202024; }
+  #input { flex: 1; resize: none; height: 38px; padding: 9px 11px; border-radius: 9px;
+    border: 1px solid #3a3a40; background: #161618; color: #e7e7ea; font: inherit; }
+  #send { padding: 0 16px; border: 0; border-radius: 9px; background: #3a6df0; color: #fff; font-weight: 600; cursor: pointer; }
+  #send:disabled { opacity: .5; cursor: default; }
+  #dot { width: 7px; height: 7px; border-radius: 50%; background: #c0392b; align-self: center; margin-right: 2px; }
+  #dot.ok { background: #2ecc71; }
+</style>
+</head>
+<body>
+  <div id="log">
+    <div class="sys">Talk to Claude. It builds and reads your Max patch.</div>
+  </div>
+  <div id="bar">
+    <span id="dot" title="connection"></span>
+    <textarea id="input" placeholder="e.g. build a 440 Hz sine into the DAC and start audio" autofocus></textarea>
+    <button id="send">Send</button>
+  </div>
+
+<script>
+  const log = document.getElementById("log");
+  const input = document.getElementById("input");
+  const send = document.getElementById("send");
+  const dot = document.getElementById("dot");
+
+  function add(role, text) {
+    const d = document.createElement("div");
+    d.className = "msg " + role;
+    d.textContent = text;
+    log.appendChild(d);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  // incoming assistant messages via SSE (auto-reconnects)
+  function connect() {
+    const es = new EventSource("/events");
+    es.onopen = () => { dot.classList.add("ok"); };
+    es.onerror = () => { dot.classList.remove("ok"); };
+    es.onmessage = (e) => {
+      try { const m = JSON.parse(e.data); add(m.role || "assistant", m.text); }
+      catch (err) {}
+    };
+  }
+  connect();
+
+  async function submit() {
+    const text = input.value.trim();
+    if (!text) return;
+    add("user", text);
+    input.value = "";
+    send.disabled = true;
+    try {
+      await fetch("/send", { method: "POST", headers: { "content-type": "application/json" },
+                             body: JSON.stringify({ text }) });
+    } catch (err) {
+      add("sys", "send failed; is node.script running?");
+    } finally {
+      send.disabled = false;
+      input.focus();
+    }
+  }
+
+  send.addEventListener("click", submit);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
+  });
+</script>
+</body>
+</html>
