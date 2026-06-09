@@ -21,7 +21,7 @@ const path = require("path");
 // ---------------------------------------------------------------------------
 const DEFAULTS = {
     port: 5173,
-    model: "claude-sonnet-4-5",
+    model: "claude-sonnet-4-20250514",
     max_tokens: 1500,
     anthropic_api_key: "",
     api_url: "https://api.anthropic.com/v1/messages",
@@ -144,15 +144,28 @@ async function execTool(name, input) {
 // LLM backend. Swap this one function to point at a local Gemma server
 // (OpenAI-compatible) instead of Anthropic.
 // ---------------------------------------------------------------------------
-const SYSTEM = [
+const FALLBACK_SYSTEM = [
     "You build and drive a Max/MSP patch through tools. Rules:",
     "- Objects are addressed by stable scripting names returned by create_object.",
     "- Wire, disconnect and delete by name. Outlets/inlets are 0-indexed, left to right.",
     "- Audio output is [dac~]; connect a gain (*~) to both dac~ inlets for stereo, then set_dsp(true).",
-    "- Lay objects on a grid (x steps ~160, y steps ~50) so the patch is readable.",
+    "- Decouple value (number/flonum) from trigger (button); load a message via its right inlet, not [prepend set].",
+    "- Use [trigger] for ordering and fan-out. Place objects right of the chat panel (x>=460) so they are visible.",
     "- Before extending an existing patch, call read_patch to see what is really there.",
     "- Keep replies short; describe what you built in one or two sentences.",
 ].join("\n");
+
+function loadGuide() {
+    const candidates = [
+        path.join(__dirname, "..", "GUIDE.md"),
+        path.join(__dirname, "GUIDE.md"),
+    ];
+    for (const c of candidates) {
+        try { const t = fs.readFileSync(c, "utf8"); if (t) return t; } catch (e) {}
+    }
+    return FALLBACK_SYSTEM;
+}
+const SYSTEM = loadGuide();
 
 let history = [];
 

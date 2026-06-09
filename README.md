@@ -170,7 +170,18 @@ request/response shape in that one function. The tool layer is unchanged.
 The in-Max chat uses API credits; external MCP clients use your Claude plan. The
 two facades share the same command vocabulary and host patch.
 
+## Patching conventions
 
+The patch the agent builds follows a house style documented in
+[`GUIDE.md`](GUIDE.md): decouple a parameter's value (a `number`/`flonum`) from
+its trigger (a `button`), load a message through its right inlet rather than
+`[prepend set]`, use `[trigger]` for ordering and fan-out, keep the signal path
+vertical, and read the patch back before extending it. That same file is the
+single source of truth fed to the model: `max_init` returns it on the MCP side,
+and the in-Max chat uses it as its system prompt. Edit `GUIDE.md` to change how
+the agent patches, on both facades at once.
+
+## Configuration
 
 | Variable          | Default     | Meaning |
 | ----------------- | ----------- | ------- |

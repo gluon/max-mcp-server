@@ -1,58 +1,38 @@
-"""Orientation guide returned by max_init: one server-authored source of truth
-so the agent does not infer conventions from individual docstrings.
+"""Orientation guide returned by max_init.
+
+Single source of truth lives in GUIDE.md at the repo root (also read by the
+in-Max chat and by humans). We load it at import; a short embedded fallback
+keeps the server working if the file is not reachable (e.g. a minimal install).
 """
 
-GUIDE = """\
-MAX/MSP MCP — ORIENTATION
+import os
 
-You drive a running Max patch through [thispatcher] scripting messages, sent as
-OSC over UDP into a vanilla [udpreceive] in the host patch (max/mcp_host.maxpat).
-Open that patch in Max before doing anything.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_CANDIDATES = [
+    os.path.join(_HERE, "..", "GUIDE.md"),   # repo checkout / editable install
+    os.path.join(_HERE, "GUIDE.md"),         # packaged alongside the module
+]
 
-ID CONTRACT
-- Every object you create gets a stable scripting NAME (obj_0, obj_1, ...).
-- You wire, disconnect and delete BY NAME, never by index. Names never drift,
-  even if the user edits the patch by hand.
-
-WIRE MODEL
-- max_connect(from_name, outlet, to_name, inlet). Outlets/inlets are 0-indexed,
-  left to right, exactly as Max counts them.
-- Signal and control connections use the same call; Max infers the cord type.
-
-OBJECT BASICS (Max class names)
-- Audio: cycle~ (sine), saw~, tri~, rect~, noise~, *~ (gain), +~, dac~, adc~,
-  gain~, line~, sig~, phasor~, svf~, lores~, biquad~, delay~, tapin~ / tapout~.
-- Control: metro, toggle, button (bang), number (int), flonum (float),
-  slider, message, comment, loadbang, t (trigger), sel, route, pack, line.
-- A message box is class "message"; its content is the rest of the text.
-
-COOKBOOK — 440 Hz sine to the DAC
-  max_create_object("cycle~", ["440"], 40, 40)   -> obj_0
-  max_create_object("*~", ["0.2"], 40, 90)       -> obj_1
-  max_create_object("dac~", [], 40, 140)         -> obj_2
-  max_connect("obj_0", 0, "obj_1", 0)
-  max_connect("obj_1", 0, "obj_2", 0)            # left
-  max_connect("obj_1", 0, "obj_2", 1)            # right
-  max_set_dsp(True)
-
-DRIVING A LIVE PATCH
-- max_send(name, [args...]) forwards a message to a [receive <name>] / [r <name>]
-  already present in the patch (via [forward] in the host patch).
-
-SEEING THE PATCH (read-back, closed loop)
-- max_dump_patch() returns every object and connection currently in the patch,
-  INCLUDING objects the user added by hand. Use it before extending or editing
-  an existing patch so you build on what is really there, not a guess.
-- max_verify() dumps and checks that everything you created is actually present;
-  recreate anything it reports as MISSING.
-- Objects related by NAME (e.g. [buffer~ micbuf] and [record~ micbuf]) are linked
-  by that shared name in their text, not by a patch cord. Read the object text,
-  not just the connections, to understand such relationships.
-
-SAFETY / NOTES
-- max_clear_canvas deletes every object THIS server created (one script delete
-  per name). Objects the user made by hand are untouched.
-- Prefer small, named, readable graphs. Lay objects out on a grid (x steps of
-  ~160, y steps of ~50) so the result is legible to a human in Max.
-- Do not suggest mxj-based objects.
+_FALLBACK = """\
+MAX/MSP MCP — ORIENTATION (fallback; full guide in GUIDE.md)
+- Objects are addressed by stable scripting names (obj_0, obj_1, ...).
+- Wire, set and delete by name. Outlets/inlets are 0-indexed, left to right.
+- Read the patch back before extending an existing one.
+- Decouple value (number/flonum) from trigger (button); load a message via its
+  right inlet rather than [prepend set]; use [trigger] for ordering and fan-out.
+- Audio out is [dac~]; for stereo wire a gain [*~] to both inlets; start DSP.
+- Place objects to the right of the chat panel (x >= ~460) so they are visible.
 """
+
+
+def _load():
+    for p in _CANDIDATES:
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                return f.read()
+        except OSError:
+            continue
+    return _FALLBACK
+
+
+GUIDE = _load()
