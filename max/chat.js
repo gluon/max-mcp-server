@@ -107,6 +107,9 @@ const TOOLS = [
     { name: "create_message", description: "Create a message box with the given content at (x,y).",
       input_schema: { type: "object", properties: {
           text: { type: "string" }, x: { type: "integer" }, y: { type: "integer" } }, required: ["text"] } },
+    { name: "create_comment", description: "Create a comment (label text) at (x,y). Place it BESIDE the object it labels, never on top of an object.",
+      input_schema: { type: "object", properties: {
+          text: { type: "string" }, x: { type: "integer" }, y: { type: "integer" } }, required: ["text"] } },
     { name: "connect", description: "Wire from_name:outlet -> to_name:inlet (0-indexed, left to right).",
       input_schema: { type: "object", properties: {
           from_name: { type: "string" }, outlet: { type: "integer" },
@@ -149,6 +152,11 @@ async function execTool(name, input) {
             const nm = nextName("obj");
             const args = atomize((input.args || []).map(String));
             Max.outlet("/newdefault", nm, x, y, input.maxclass, ...args);
+            // A comment's text is not a typed-in arg; it must be set explicitly,
+            // or the box shows up empty.
+            if (input.maxclass === "comment" && args.length) {
+                Max.outlet("/setbox", nm, "set", ...args);
+            }
             return "created " + nm + ": [" + [input.maxclass].concat(args).join(" ") + "]";
         }
         case "create_message": {
@@ -156,6 +164,12 @@ async function execTool(name, input) {
             Max.outlet("/newdefault", nm, x, y, "message");
             Max.outlet("/setbox", nm, "set", ...atomize(String(input.text).split(" ")));
             return "created " + nm + ": message [" + input.text + "]";
+        }
+        case "create_comment": {
+            const nm = nextName("obj");
+            Max.outlet("/newdefault", nm, x, y, "comment");
+            Max.outlet("/setbox", nm, "set", ...String(input.text).split(" "));
+            return "created " + nm + ": comment [" + input.text + "]";
         }
         case "connect":
             Max.outlet("/connect", input.from_name, input.outlet, input.to_name, input.inlet);

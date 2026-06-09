@@ -83,10 +83,15 @@ def max_create_message(text: str, x: int = 40, y: int = 40) -> str:
 
 @mcp.tool()
 def max_create_comment(text: str, x: int = 40, y: int = 40) -> str:
-    """Create a text comment at (x, y). Returns its name."""
+    """Create a text comment at (x, y). Returns its name. Place comments BESIDE
+    the object they label, never on top of an object."""
     _require_init()
-    name = _newdefault("comment", text.split(), x, y, prefix="cmt")
-    return f"created {name}: comment"
+    name = state.next_name("cmt")
+    tx.send("/newdefault", name, int(x), int(y), "comment")
+    # A comment's text must be set explicitly, or the box shows up empty.
+    tx.send("/setbox", name, "set", *text.split())
+    state.register(MaxObject(name=name, maxclass="comment", text=text, x=int(x), y=int(y)))
+    return f"created {name}: comment [{text}]"
 
 
 @mcp.tool()

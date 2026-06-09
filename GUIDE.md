@@ -13,6 +13,14 @@ cheat-sheet, and a cookbook. Follow it over anything you might infer.
   build on what is really there, including objects the user added by hand.
 - **When unsure of an object's signature** (inlet/outlet order, argument types,
   attribute names), **look it up** in the object reference rather than guessing.
+  In particular, before connecting to an inlet other than 0, confirm the target
+  actually has that inlet: a `[*~]` or `[dac~]` has only inlets 0 and 1, so
+  connecting to inlet 2 silently fails.
+- **Verify by reading back.** A failed `connect` (wrong inlet index, or a target
+  whose creation failed) only logs to the Max console; the tool result does not
+  report it. So after wiring a non-trivial patch, call `read_patch`, compare the
+  connections present against what you intended, and reissue any that are
+  missing. Do not assume a connection succeeded just because the call returned.
 
 ## Max execution model (get this right)
 
