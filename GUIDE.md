@@ -67,19 +67,25 @@ cheat-sheet, and a cookbook. Follow it over anything you might infer.
 
 ## Layout (strict)
 
-- **NEVER place an object on top of, or overlapping, another object.** Before
-  choosing a position, account for each object's width and height and leave a
-  clear gap. Overlapping boxes are the worst possible output.
-- **Keep clear of the machinery.** The top-left area holds `[p mcp_server]`,
-  `[thispatcher]`, the chat panel (`jweb`) and comments. Build your patch in the
-  open area to the **right** of the chat panel: start at **x >= 480**, and do
-  not place anything in the top band where the machinery sits.
-- Use a **regular grid**: a vertical step of **~45 px** between objects chained
-  in series, and a horizontal step of **~150 px** between parallel columns
-  (e.g. the voices of a sequencer side by side). Align to multiples of 15 px.
+- **NEVER place an object on top of, or overlapping, another object or its
+  comment.** You place objects blind (you cannot see the rendered canvas), so be
+  generous: a typical object box is ~120 px wide and ~22 px tall, and a comment
+  is ~150 px wide. Leave room for those widths.
+- **Reserved zone — do not build here.** The machinery (`[p mcp_server]`,
+  `[thispatcher]`), the header comment and the chat panel (`jweb`) occupy the
+  top band and the whole left column. Build only in the open area: **x >= 480
+  AND y >= 230**. Never place anything above y = 230 or left of x = 480.
+- **Comments go ABOVE the object they label, never to its right.** Put the
+  comment at the same x as the object and ~25 px above it (y_object - 25). A
+  comment placed to the right collides with the next column. Keep comments to a
+  few words.
+- **Vertical chain:** objects wired in series share one x and step down by
+  ~70 px (enough to fit each object's comment above it).
+- **Parallel columns** (e.g. sequencer voices, a hot/cold pair) step across by
+  **>= 220 px** so neither the objects nor their comments touch the next column.
+- **Separate sections:** leave a >= 90 px vertical gap between independent
+  blocks; if two blocks sit side by side, separate them by >= 320 px.
 - Keep the signal/data flow vertical: source at top, `[dac~]` at the bottom.
-- Comment a section with a `[comment]` placed **beside or above** the block it
-  labels, never overlapping an object.
 
 ## Object cheat-sheet
 
