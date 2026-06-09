@@ -55,15 +55,21 @@ cheat-sheet, and a cookbook. Follow it over anything you might infer.
    left inlet receives input, using the value stored in the right inlet. Set the
    right inlet before banging the left.
 
-## Layout
+## Layout (strict)
 
-- Lay objects on a readable grid: data and signal flow **top to bottom**,
-  vertical steps ~50 px, horizontal steps ~160 px. Keep the signal path roughly
-  vertical.
-- The chat panel (a `jweb` object) sits on the **left** of the host patch.
-  Place new objects to the **right of it (start around x = 460)** or well below,
-  so the user can actually see what you build.
-- Add a `comment` to label each section of a larger patch.
+- **NEVER place an object on top of, or overlapping, another object.** Before
+  choosing a position, account for each object's width and height and leave a
+  clear gap. Overlapping boxes are the worst possible output.
+- **Keep clear of the machinery.** The top-left area holds `[p mcp_server]`,
+  `[thispatcher]`, the chat panel (`jweb`) and comments. Build your patch in the
+  open area to the **right** of the chat panel: start at **x >= 480**, and do
+  not place anything in the top band where the machinery sits.
+- Use a **regular grid**: a vertical step of **~45 px** between objects chained
+  in series, and a horizontal step of **~150 px** between parallel columns
+  (e.g. the voices of a sequencer side by side). Align to multiples of 15 px.
+- Keep the signal/data flow vertical: source at top, `[dac~]` at the bottom.
+- Comment a section with a `[comment]` placed **beside or above** the block it
+  labels, never overlapping an object.
 
 ## Object cheat-sheet
 
@@ -87,6 +93,12 @@ cheat-sheet, and a cookbook. Follow it over anything you might infer.
   inlet of `uzi`; a `button` into the LEFT inlet of `uzi`; `uzi` -> `zl.group`
   -> `prepend set` -> `message`. Setting the count never fires; only the button
   does.
+- **Two-operator FM:** the modulator's output is SCALED by depth and ADDED to
+  the carrier frequency; it never replaces it. Chain:
+  `cycle~` (modulator) -> `*~ <depth>` -> `+~ <carrier_freq>` -> `cycle~`
+  (carrier) -> `*~ <amp>` -> `dac~`. The modulator frequency is
+  `carrier_freq * ratio` (compute it and set the modulator's frequency). Use
+  `number`/`flonum` boxes for carrier freq, ratio and depth.
 
 ## Reading the patch
 

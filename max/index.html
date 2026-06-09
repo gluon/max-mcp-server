@@ -23,6 +23,7 @@
     border: 1px solid #3a3a40; background: #161618; color: #e7e7ea; font: inherit; }
   #send { padding: 0 16px; border: 0; border-radius: 9px; background: #3a6df0; color: #fff; font-weight: 600; cursor: pointer; }
   #send:disabled { opacity: .5; cursor: default; }
+  #new { padding: 0 11px; border: 1px solid #3a3a40; border-radius: 9px; background: #2a2a2e; color: #c7c7cc; cursor: pointer; }
   #dot { width: 7px; height: 7px; border-radius: 50%; background: #c0392b; align-self: center; margin-right: 2px; }
   #dot.ok { background: #2ecc71; }
 </style>
@@ -33,6 +34,7 @@
   </div>
   <div id="bar">
     <span id="dot" title="connection"></span>
+    <button id="new" title="Start a fresh conversation">New</button>
     <textarea id="input" placeholder="e.g. build a 440 Hz sine into the DAC and start audio" autofocus></textarea>
     <button id="send">Send</button>
   </div>
@@ -83,6 +85,12 @@
   send.addEventListener("click", submit);
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
+  });
+
+  document.getElementById("new").addEventListener("click", async () => {
+    try { await fetch("/reset", { method: "POST" }); } catch (err) {}
+    log.innerHTML = '<div class="sys">New conversation. The patch is untouched.</div>';
+    input.focus();
   });
 </script>
 </body>

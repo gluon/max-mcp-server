@@ -22,7 +22,7 @@ const path = require("path");
 const DEFAULTS = {
     port: 5173,
     model: "claude-sonnet-4-20250514",
-    max_tokens: 1500,
+    max_tokens: 4096,
     anthropic_api_key: "",
     api_url: "https://api.anthropic.com/v1/messages",
     anthropic_version: "2023-06-01",
@@ -96,6 +96,17 @@ const TOOLS = [
       input_schema: { type: "object", properties: {} } },
 ];
 
+// Numeric tokens must reach Max as ints/floats, not quoted symbols, or a
+// message like [262] becomes ["262"] and won't drive a [cycle~].
+function atomize(tokens) {
+    return tokens.map((t) => {
+        if (typeof t !== "string") return t;
+        if (/^-?\d+$/.test(t)) return parseInt(t, 10);
+        if (/^-?\d*\.\d+$/.test(t)) return parseFloat(t);
+        return t;
+    });
+}
+
 async function execTool(name, input) {
     input = input || {};
     const x = (input.x != null) ? input.x : 40;
@@ -103,14 +114,14 @@ async function execTool(name, input) {
     switch (name) {
         case "create_object": {
             const nm = nextName("obj");
-            const args = (input.args || []).map(String);
+            const args = atomize((input.args || []).map(String));
             Max.outlet("/newdefault", nm, x, y, input.maxclass, ...args);
             return "created " + nm + ": [" + [input.maxclass].concat(args).join(" ") + "]";
         }
         case "create_message": {
             const nm = nextName("msg");
             Max.outlet("/newdefault", nm, x, y, "message");
-            Max.outlet("/setbox", nm, "set", ...String(input.text).split(" "));
+            Max.outlet("/setbox", nm, "set", ...atomize(String(input.text).split(" ")));
             return "created " + nm + ": message [" + input.text + "]";
         }
         case "connect":
@@ -195,7 +206,7 @@ async function callLLM(messages) {
 async function runAgent(userText) {
     history.push({ role: "user", content: userText });
     let guard = 0;
-    while (guard++ < 12) {
+    while (guard++ < 16) {
         let resp;
         try {
             resp = await callLLM(history);
@@ -210,7 +221,11 @@ async function runAgent(userText) {
         if (text) sendToUI(text);
 
         const toolUses = (resp.content || []).filter(b => b.type === "tool_use");
-        if (resp.stop_reason !== "tool_use" || toolUses.length === 0) return;
+        // Branch on tool_use presence, NOT stop_reason: if the model emitted any
+        // tool calls we MUST answer every one with a tool_result, or the next
+        // request 400s ("tool_use without tool_result"). Only finish when there
+        // are no tool calls left.
+        if (toolUses.length === 0) return;
 
         const results = [];
         for (const tu of toolUses) {
@@ -266,6 +281,13 @@ const server = http.createServer((req, res) => {
                 if (text && text.trim()) runAgent(text.trim());
             } catch (e) { Max.post("chat.js bad /send body: " + e.message); }
         });
+        return;
+    }
+    if (req.method === "POST" && req.url === "/reset") {
+        history = [];
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end("{}");
+        Max.post("chat.js: conversation reset");
         return;
     }
     res.writeHead(404); res.end();
