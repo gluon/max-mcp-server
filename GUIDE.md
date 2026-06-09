@@ -11,16 +11,30 @@ cheat-sheet, and a cookbook. Follow it over anything you might infer.
 - Outlets and inlets are **0-indexed, left to right**, exactly as Max counts.
 - Before extending or editing an existing patch, **read it back first** so you
   build on what is really there, including objects the user added by hand.
+- **To build a patch from scratch, use `build_patch`.** Describe the whole
+  graph — every object (with a short `id`, its `type`, `args`, and an optional
+  `comment`) and every connection (by `id`). The code places everything
+  automatically with no overlaps, wires it, and reports any connection that did
+  not take so you can reissue just those. You never compute coordinates. Use the
+  unitary tools (`create_object`, `connect`, ...) only to edit a patch that
+  already exists.
+- **Name your objects.** When you create an object, pass a short meaningful
+  `name` label (e.g. `freq`, `pack_main`, `carrier`) and connect using those
+  labels. Do not try to track auto-generated `obj_N` names across many creates;
+  that is where wiring goes wrong. A `connect` to an unknown name returns an
+  error listing the names you have created — read it and correct the call.
+- **Comments have no inlets or outlets.** Never connect anything to or from a
+  comment. Do not create bare `set` messages that go nowhere.
 - **When unsure of an object's signature** (inlet/outlet order, argument types,
   attribute names), **look it up** in the object reference rather than guessing.
   In particular, before connecting to an inlet other than 0, confirm the target
   actually has that inlet: a `[*~]` or `[dac~]` has only inlets 0 and 1, so
   connecting to inlet 2 silently fails.
-- **Verify by reading back.** A failed `connect` (wrong inlet index, or a target
-  whose creation failed) only logs to the Max console; the tool result does not
-  report it. So after wiring a non-trivial patch, call `read_patch`, compare the
-  connections present against what you intended, and reissue any that are
-  missing. Do not assume a connection succeeded just because the call returned.
+- **Verify by reading back, as your final step.** A failed `connect` only logs
+  to the Max console; the patch may be left incomplete. So after wiring any
+  non-trivial patch, call `read_patch`, check that every connection you intended
+  is present, and reissue any that are missing. Only then tell the user it is
+  done.
 
 ## Max execution model (get this right)
 

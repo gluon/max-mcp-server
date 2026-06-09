@@ -76,8 +76,23 @@ function formatDoc(o) {
 // Patch state (stable scripting names, mirrors the Python server)
 // ---------------------------------------------------------------------------
 let counter = 0;
-const created = new Set();
-function nextName(prefix) { const n = prefix + "_" + counter; counter++; created.add(n); return n; }
+// Registry of objects created this session. Keyed by BOTH the model's chosen
+// label (if any) and the scripting name, so connect/delete resolve either.
+// Value: { name: <scripting name>, maxclass }.
+const nodes = new Map();
+function nextName(prefix) { return prefix + "_" + (counter++); }
+function register(scriptName, maxclass, label) {
+    const rec = { name: scriptName, maxclass: maxclass };
+    if (label && label !== scriptName) nodes.set(label, rec);
+    nodes.set(scriptName, rec);
+    return rec;
+}
+function resolve(key) { return nodes.get(String(key)); }
+function knownLabels() {
+    const seen = new Set(), out = [];
+    for (const [k, v] of nodes) { if (!seen.has(v.name)) { seen.add(v.name); out.push(k); } }
+    return out;
+}
 
 // ---------------------------------------------------------------------------
 // Reading the patch: trigger [v8 dump.js], await the /patch reply
@@ -99,18 +114,35 @@ function readPatch(timeoutMs) {
 // Tools exposed to the model (mirror the build tools; executed via Max.outlet)
 // ---------------------------------------------------------------------------
 const TOOLS = [
-    { name: "create_object", description: "Create a Max object box [maxclass args...] at (x,y). Returns its scripting name (e.g. obj_3).",
+    { name: "build_patch", description: "Build a whole patch at once from a graph. The CODE lays everything out automatically (no overlaps, flow top-to-bottom) and wires it, then verifies and reports any connection that did not take. PREFER this to build a patch from scratch; you supply no coordinates. Use the unitary tools only to edit an already-existing patch.",
+      input_schema: { type: "object", properties: {
+          objects: { type: "array", description: "every box to create", items: { type: "object", properties: {
+              id: { type: "string", description: "your label, referenced in connections" },
+              type: { type: "string", description: "maxclass: cycle~, *~, +~, dac~, metro, counter, sel, number, flonum, message, button, toggle, ..." },
+              args: { type: "array", items: { type: "string" }, description: "typed-in arguments (for object boxes)" },
+              text: { type: "string", description: "content (for type 'message' or 'comment')" },
+              comment: { type: "string", description: "optional short annotation, shown in a side lane" } },
+              required: ["id", "type"] } },
+          connections: { type: "array", description: "wires, by id", items: { type: "object", properties: {
+              from: { type: "string" }, outlet: { type: "integer" }, to: { type: "string" }, inlet: { type: "integer" } },
+              required: ["from", "to"] } },
+          title: { type: "string", description: "optional title comment at the top" } },
+          required: ["objects"] } },
+    { name: "create_object", description: "Create a Max object box [maxclass args...] at (x,y). Pass a short label in `name` (e.g. 'freq', 'pack_main') and use that same label when connecting. Returns the label.",
       input_schema: { type: "object", properties: {
           maxclass: { type: "string", description: "e.g. cycle~, *~, dac~, metro" },
           args: { type: "array", items: { type: "string" }, description: "typed-in arguments" },
+          name: { type: "string", description: "your label to refer to this object later" },
           x: { type: "integer" }, y: { type: "integer" } }, required: ["maxclass"] } },
-    { name: "create_message", description: "Create a message box with the given content at (x,y).",
+    { name: "create_message", description: "Create a message box with the given content at (x,y). Pass a label in `name` to refer to it later.",
       input_schema: { type: "object", properties: {
-          text: { type: "string" }, x: { type: "integer" }, y: { type: "integer" } }, required: ["text"] } },
-    { name: "create_comment", description: "Create a comment (label text) at (x,y). Place it BESIDE the object it labels, never on top of an object.",
+          text: { type: "string" }, name: { type: "string", description: "your label" },
+          x: { type: "integer" }, y: { type: "integer" } }, required: ["text"] } },
+    { name: "create_comment", description: "Create a comment (label text) at (x,y). A comment has NO inlets or outlets; never connect anything to or from it. Place it ABOVE the object it labels.",
       input_schema: { type: "object", properties: {
-          text: { type: "string" }, x: { type: "integer" }, y: { type: "integer" } }, required: ["text"] } },
-    { name: "connect", description: "Wire from_name:outlet -> to_name:inlet (0-indexed, left to right).",
+          text: { type: "string" }, name: { type: "string", description: "your label" },
+          x: { type: "integer" }, y: { type: "integer" } }, required: ["text"] } },
+    { name: "connect", description: "Wire from_name:outlet -> to_name:inlet (0-indexed, left to right). Use the labels you gave when creating the objects.",
       input_schema: { type: "object", properties: {
           from_name: { type: "string" }, outlet: { type: "integer" },
           to_name: { type: "string" }, inlet: { type: "integer" } },
@@ -143,6 +175,51 @@ function atomize(tokens) {
     });
 }
 
+// Deterministic layout: lay objects out by graph topology so signal/data flows
+// top-to-bottom, parallel nodes sit side by side, and nothing overlaps. The
+// model no longer computes any coordinate. Per-object comments go in a side
+// lane to the right so cords never cross them.
+function layoutGraph(objects, connections, opts) {
+    const X0 = (opts && opts.x0) || 480;
+    const Y0 = (opts && opts.y0) || 240;
+    const COL = 200, ROW = 80;
+    const ids = objects.map((o) => o.id);
+    const idset = new Set(ids);
+    const indeg = new Map(ids.map((i) => [i, 0]));
+    const adj = new Map(ids.map((i) => [i, []]));
+    connections.forEach((c) => {
+        if (idset.has(c.from) && idset.has(c.to) && c.from !== c.to) {
+            adj.get(c.from).push(c.to);
+            indeg.set(c.to, indeg.get(c.to) + 1);
+        }
+    });
+    // longest-path layering (Kahn); cycle-safe for feedback patches.
+    const depth = new Map(ids.map((i) => [i, 0]));
+    const work = new Map(indeg);
+    const q = ids.filter((i) => work.get(i) === 0);
+    let processed = 0;
+    while (q.length) {
+        const u = q.shift(); processed++;
+        adj.get(u).forEach((v) => {
+            if (depth.get(v) < depth.get(u) + 1) depth.set(v, depth.get(u) + 1);
+            work.set(v, work.get(v) - 1);
+            if (work.get(v) === 0) q.push(v);
+        });
+    }
+    if (processed < ids.length) { // nodes left in a cycle: stack them below
+        let d = Math.max(0, ...depth.values()) + 1;
+        ids.forEach((i) => { if (work.get(i) > 0) depth.set(i, d++); });
+    }
+    const byRow = new Map();
+    ids.forEach((i) => { const r = depth.get(i); if (!byRow.has(r)) byRow.set(r, []); byRow.get(r).push(i); });
+    const pos = new Map(); let maxCol = 0;
+    byRow.forEach((arr, r) => arr.forEach((id, col) => {
+        pos.set(id, { x: X0 + col * COL, y: Y0 + r * ROW });
+        if (col > maxCol) maxCol = col;
+    }));
+    return { pos: pos, commentX: X0 + (maxCol + 1) * COL + 20 };
+}
+
 async function execTool(name, input) {
     input = input || {};
     const x = (input.x != null) ? input.x : 40;
@@ -152,34 +229,51 @@ async function execTool(name, input) {
             const nm = nextName("obj");
             const args = atomize((input.args || []).map(String));
             Max.outlet("/newdefault", nm, x, y, input.maxclass, ...args);
-            // A comment's text is not a typed-in arg; it must be set explicitly,
-            // or the box shows up empty.
             if (input.maxclass === "comment" && args.length) {
                 Max.outlet("/setbox", nm, "set", ...args);
             }
-            return "created " + nm + ": [" + [input.maxclass].concat(args).join(" ") + "]";
+            register(nm, input.maxclass, input.name);
+            const label = input.name || nm;
+            return "created '" + label + "' (" + nm + "): [" + [input.maxclass].concat(args).join(" ") + "]";
         }
         case "create_message": {
             const nm = nextName("msg");
             Max.outlet("/newdefault", nm, x, y, "message");
             Max.outlet("/setbox", nm, "set", ...atomize(String(input.text).split(" ")));
-            return "created " + nm + ": message [" + input.text + "]";
+            register(nm, "message", input.name);
+            const label = input.name || nm;
+            return "created '" + label + "' (" + nm + "): message [" + input.text + "]";
         }
         case "create_comment": {
             const nm = nextName("obj");
             Max.outlet("/newdefault", nm, x, y, "comment");
             Max.outlet("/setbox", nm, "set", ...String(input.text).split(" "));
-            return "created " + nm + ": comment [" + input.text + "]";
+            register(nm, "comment", input.name);
+            const label = input.name || nm;
+            return "created '" + label + "' (" + nm + "): comment [" + input.text + "]";
         }
-        case "connect":
-            Max.outlet("/connect", input.from_name, input.outlet, input.to_name, input.inlet);
+        case "connect": {
+            const src = resolve(input.from_name), dst = resolve(input.to_name);
+            if (!src) return "ERROR: no object named '" + input.from_name + "'. Known: " + knownLabels().join(", ");
+            if (!dst) return "ERROR: no object named '" + input.to_name + "'. Known: " + knownLabels().join(", ");
+            if (src.maxclass === "comment") return "ERROR: '" + input.from_name + "' is a comment and has no outlet; comments cannot be connected.";
+            if (dst.maxclass === "comment") return "ERROR: '" + input.to_name + "' is a comment and has no inlet; comments cannot be connected.";
+            Max.outlet("/connect", src.name, input.outlet, dst.name, input.inlet);
             return "connected " + input.from_name + ":" + input.outlet + " -> " + input.to_name + ":" + input.inlet;
-        case "disconnect":
-            Max.outlet("/disconnect", input.from_name, input.outlet, input.to_name, input.inlet);
+        }
+        case "disconnect": {
+            const src = resolve(input.from_name), dst = resolve(input.to_name);
+            if (!src || !dst) return "ERROR: unknown object. Known: " + knownLabels().join(", ");
+            Max.outlet("/disconnect", src.name, input.outlet, dst.name, input.inlet);
             return "disconnected";
-        case "delete_object":
-            Max.outlet("/delete", input.name); created.delete(input.name);
+        }
+        case "delete_object": {
+            const rec = resolve(input.name);
+            if (!rec) return "ERROR: no object named '" + input.name + "'.";
+            Max.outlet("/delete", rec.name);
+            for (const [k, v] of [...nodes]) if (v.name === rec.name) nodes.delete(k);
             return "deleted " + input.name;
+        }
         case "set_dsp":
             Max.outlet("/dsp", input.on ? 1 : 0);
             return "dsp " + (input.on ? "on" : "off");
@@ -188,10 +282,80 @@ async function execTool(name, input) {
             return json;
         }
         case "clear_canvas": {
-            let n = 0;
-            created.forEach((nm) => { Max.outlet("/delete", nm); n++; });
-            created.clear(); counter = 0;
-            return "cleared " + n + " object(s)";
+            const names = new Set([...nodes.values()].map(v => v.name));
+            names.forEach((nm) => Max.outlet("/delete", nm));
+            nodes.clear(); counter = 0;
+            return "cleared " + names.size + " object(s)";
+        }
+        case "build_patch": {
+            const objs = input.objects || [];
+            const conns = input.connections || [];
+            if (!objs.length) return "ERROR: build_patch needs a non-empty 'objects' array.";
+            const Y0 = input.title ? 288 : 240;
+            const { pos, commentX } = layoutGraph(objs, conns, { y0: Y0 });
+            const laneY = []; // track used comment-lane rows to avoid overlap
+            function placeComment(text, y) {
+                let cy = y;
+                while (laneY.some((yy) => Math.abs(yy - cy) < 24)) cy += 24;
+                laneY.push(cy);
+                const cn = nextName("obj");
+                Max.outlet("/newdefault", cn, commentX, cy, "comment");
+                Max.outlet("/setbox", cn, "set", ...String(text).split(" ").filter(Boolean));
+            }
+            if (input.title) {
+                const tn = nextName("obj");
+                Max.outlet("/newdefault", tn, 480, 244, "comment");
+                Max.outlet("/setbox", tn, "set", ...String(input.title).split(" ").filter(Boolean));
+            }
+            // 1) create every object at its computed position
+            for (const ob of objs) {
+                const p = pos.get(ob.id) || { x: 480, y: Y0 };
+                const type = ob.type || ob.maxclass;
+                let nm, mc;
+                if (type === "message") {
+                    nm = nextName("msg"); mc = "message";
+                    Max.outlet("/newdefault", nm, p.x, p.y, "message");
+                    Max.outlet("/setbox", nm, "set", ...atomize(String(ob.text || "").split(" ").filter(Boolean)));
+                } else if (type === "comment") {
+                    nm = nextName("obj"); mc = "comment";
+                    Max.outlet("/newdefault", nm, p.x, p.y, "comment");
+                    Max.outlet("/setbox", nm, "set", ...String(ob.text || "").split(" ").filter(Boolean));
+                } else {
+                    nm = nextName("obj"); mc = type;
+                    const args = atomize((ob.args || []).map(String));
+                    Max.outlet("/newdefault", nm, p.x, p.y, type, ...args);
+                }
+                register(nm, mc, ob.id);
+                if (ob.comment) placeComment(ob.comment, p.y);
+            }
+            // 2) wire every connection by id
+            const requested = [], skipped = [];
+            for (const c of conns) {
+                const src = resolve(c.from), dst = resolve(c.to);
+                if (!src || !dst) { skipped.push(c.from + "->" + c.to + " (unknown id)"); continue; }
+                if (src.maxclass === "comment" || dst.maxclass === "comment") { skipped.push(c.from + "->" + c.to + " (comment)"); continue; }
+                const ou = c.outlet || 0, il = c.inlet || 0;
+                Max.outlet("/connect", src.name, ou, dst.name, il);
+                requested.push({ src: src.name, ou, dst: dst.name, il, from: c.from, to: c.to });
+            }
+            // 3) let thispatcher flush, then read back and verify
+            await new Promise((r) => setTimeout(r, 400));
+            const json = await readPatch(1800);
+            let present = 0; const missing = [];
+            try {
+                const patch = JSON.parse(json);
+                const have = new Set((patch.lines || []).map((l) => l.src + "|" + l.outlet + "|" + l.dst + "|" + l.inlet));
+                requested.forEach((r) => {
+                    if (have.has(r.src + "|" + r.ou + "|" + r.dst + "|" + r.il)) present++;
+                    else missing.push(r.from + ":" + r.ou + " -> " + r.to + ":" + r.il);
+                });
+            } catch (e) {
+                return "built " + objs.length + " objects, issued " + requested.length + " connections (verify failed: " + e.message + ")";
+            }
+            let rep = "built " + objs.length + " objects; " + present + "/" + requested.length + " connections verified";
+            if (missing.length) rep += ". MISSING (reissue with connect): " + missing.join("; ");
+            if (skipped.length) rep += ". skipped: " + skipped.join("; ");
+            return rep;
         }
         case "lookup_object": {
             const db = objDb();
@@ -354,4 +518,4 @@ server.listen(CONFIG.port, "127.0.0.1", () => {
              (CONFIG.anthropic_api_key ? "" : "  (WARNING: no API key in chat.config.json)"));
 });
 
-Max.addHandler("reset", () => { history = []; counter = 0; created.clear(); Max.post("chat.js: conversation reset"); });
+Max.addHandler("reset", () => { history = []; counter = 0; nodes.clear(); Max.post("chat.js: conversation reset"); });
