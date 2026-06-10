@@ -1,5 +1,12 @@
 # maxmsp-mcp
 
+
+> **Early experiment — v0.4, a first public test, not a finished product.**
+> It works and ships with a test suite, but it has had very little real-world use:
+> expect rough edges, and expect things to change. It has been exercised mostly
+> through the in-Max chat; the external MCP server runs the same engine and passes
+> the tests but has seen little live use. Bug reports and feedback are very welcome.
+
 Build and drive [Max/MSP](https://cycling74.com) patches in natural language,
 from an MCP client (Claude Desktop, Claude Code, the MCP Inspector, ...) **or
 from a chat window that lives inside Max itself**. The agent creates objects,
