@@ -9,7 +9,7 @@
             "modernui": 1
         },
         "classnamespace": "box",
-        "rect": [ 96.0, 129.0, 1378.0, 1079.0 ],
+        "rect": [ 33.0, 102.0, 1872.0, 1118.0 ],
         "boxes": [
             {
                 "box": {
@@ -207,6 +207,8 @@
                                     "saved_object_attributes": {
                                         "autostart": 1,
                                         "defer": 0,
+                                        "node_bin_path": "",
+                                        "npm_bin_path": "",
                                         "watch": 1
                                     },
                                     "text": "node.script chat.js @autostart 1 @watch 1",
@@ -394,17 +396,6 @@
                     "patching_rect": [ 412.0, 12.0, 580.0, 47.0 ],
                     "text": "maxmsp-mcp host (v0.4). Keep open. The plumbing lives inside [p mcp_server] (varnames mcp_*, filtered from dumps). Drive it from an external MCP client (OSC over [udpreceive]/[udpsend]) or the in-Max chat at left ([node.script] + [jweb]); both feed one [thispatcher].",
                     "varname": "mcp_note"
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-49",
-                    "maxclass": "comment",
-                    "numinlets": 1,
-                    "numoutlets": 0,
-                    "patching_rect": [ 1500.0, 552.0, 150.0, 20.0 ],
-                    "text": "Tempo metro (ms)",
-                    "varname": "obj_25"
                 }
             }
         ],
