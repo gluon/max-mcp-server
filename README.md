@@ -21,7 +21,7 @@ Pure Max mechanisms — no third-party externals, no `mxj`, no relay daemon:
 - **Reading** the patch uses a `[v8]` JavaScript object that walks the patcher
   via the official Max JS API (`boxtext`, `patchcords`) and returns it as JSON.
 - **Transport** to the external server is OSC over UDP between the Python server
-  and a vanilla `[udpreceive]` / `[udpsend]` pair in the host patch. The in-Max
+  and a stock `[udpreceive]` / `[udpsend]` pair in the host patch. The in-Max
   chat drives the same plumbing directly from `[node.script]`.
 
 ## Two ways to use it
@@ -69,7 +69,7 @@ subpatcher and filtered from every read-back.
 
 ## Requirements
 
-- Max **8 or 9** (`thispatcher`, vanilla `udpreceive`/`udpsend`, the `[v8]`
+- Max **8 or 9** (`thispatcher`, stock `udpreceive`/`udpsend`, the `[v8]`
   engine; `[node.script]` for the in-Max chat).
 - Python **3.10+** for the external MCP server.
 - [`uv`](https://github.com/astral-sh/uv) (recommended) or `pip`.

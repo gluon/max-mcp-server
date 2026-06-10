@@ -1,4 +1,4 @@
-"""OSC-over-UDP transport to a vanilla [udpreceive] in Max.
+"""OSC-over-UDP transport to a stock [udpreceive] in Max.
 
 No third-party dependency: a tiny, correct OSC 1.0 encoder (4-byte aligned,
 type tags s/i/f). Max's [udpreceive] parses incoming OSC and outputs the
