@@ -99,9 +99,9 @@ def test_create_message_sets_content():
     addrs = [c[0] for c in fake.calls]
     assert "/newdefault" in addrs and "/setbox" in addrs
     setbox = [c for c in fake.calls if c[0] == "/setbox"][0]
-    # args: name, "set", "set", "1", "2", "3"  (content words after the leading 'set')
+    # numeric content reaches Max as ints (atomized), not quoted symbols
     assert setbox[1][1] == "set"
-    assert setbox[1][2:] == ["set", "1", "2", "3"]
+    assert setbox[1][2:] == ["set", 1, 2, 3]
 
 
 def test_clear_deletes_each_name():
@@ -173,3 +173,37 @@ def test_verify_reports_missing():
     server.rx = FakeRx({"objects": [{"varname": "obj_0", "maxclass": "newobj", "text": "cycle~ 440"}], "lines": []})
     out = server.max_verify()
     assert "MISSING" in out and "obj_1" in out
+
+
+def test_build_patch_recovers_type_and_verifies():
+    fake = _fresh()
+    server.max_init()
+
+    def fake_dump():
+        objs = [{"varname": c[1][0], "maxclass": (c[1][3] if len(c[1]) > 3 else ""), "text": ""}
+                for c in fake.calls if c[0] == "/newdefault"]
+        lines = [{"src": c[1][0], "outlet": c[1][1], "dst": c[1][2], "inlet": c[1][3]}
+                 for c in fake.calls if c[0] == "/connect"]
+        return {"objects": objs, "lines": lines}
+
+    orig = server._dump_raw
+    server._dump_raw = fake_dump
+    try:
+        rep = server.max_build_patch(
+            objects=[
+                {"id": "car", "type": "object", "args": ["cycle~", "440"]},  # misuse, recovered
+                {"id": "amp", "type": "*~", "args": ["0.2"]},
+                {"id": "out", "type": "dac~"},
+            ],
+            connections=[
+                {"from": "car", "outlet": 0, "to": "amp", "inlet": 0},
+                {"from": "amp", "outlet": 0, "to": "out", "inlet": 0},
+                {"from": "amp", "outlet": 0, "to": "out", "inlet": 1},
+            ],
+        )
+    finally:
+        server._dump_raw = orig
+
+    assert "3/3 connections verified" in rep
+    classes = [c[1][3] for c in fake.calls if c[0] == "/newdefault" and len(c[1]) > 3]
+    assert "cycle~" in classes and "object" not in classes

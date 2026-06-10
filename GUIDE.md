@@ -11,7 +11,8 @@ cheat-sheet, and a cookbook. Follow it over anything you might infer.
 - Outlets and inlets are **0-indexed, left to right**, exactly as Max counts.
 - Before extending or editing an existing patch, **read it back first** so you
   build on what is really there, including objects the user added by hand.
-- **To build a patch from scratch, use `build_patch`.** Describe the whole
+- **To build a patch from scratch, use `build_patch`** (named `max_build_patch`
+  on the external MCP server). Describe the whole
   graph — every object (with a short `id`, its `type` = the Max class itself
   such as `cycle~` or `*~`, never the literal word `object`; its `args`; and an
   optional `comment`) and every connection (by `id`). The code places everything

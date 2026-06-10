@@ -36,6 +36,12 @@ for the MCP and how to stay out of trouble.
 
 ## Working rules
 
+- **To build a patch from scratch, prefer `max_build_patch`.** Pass the whole
+  graph — objects (each with an `id`, a `type` = the Max class such as `cycle~`,
+  optional `args`, optional one-line `comment`) and connections (by `id`). The
+  server lays it out with no overlaps, wires it, verifies by reading back, and
+  reissues any missing connection itself. You supply no coordinates. Use the
+  unitary tools below only to EDIT a patch that already exists.
 - **Address objects by their scripting name** (`obj_0`, `obj_1`, ...), returned
   by every create call. Wire, disconnect and delete by that name. Track the
   names you create; do not invent them.

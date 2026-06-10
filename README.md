@@ -150,6 +150,7 @@ truth.
 | Tool                  | What it does |
 | --------------------- | ------------ |
 | `max_init`            | **Mandatory first call.** Returns the orientation guide and unlocks the rest |
+| `max_build_patch`     | **Build a whole patch from a graph** (objects + connections by id): auto-layout, by-id wiring, self-healing read-back verification. Preferred for building from scratch |
 | `max_create_object`   | Create `[maxclass args...]` at (x,y); returns its scripting name |
 | `max_create_message`  | Create a message box and set its content |
 | `max_create_comment`  | Create a text comment |

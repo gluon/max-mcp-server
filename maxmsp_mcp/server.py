@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from collections import deque
 from typing import List, Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -52,6 +54,64 @@ def _newdefault(maxclass: str, args: List[str], x: int, y: int, prefix: str = "o
     return name
 
 
+def _atomize(tokens: List[str]) -> list:
+    """Numeric tokens must reach Max as ints/floats, not quoted symbols."""
+    out: list = []
+    for t in tokens:
+        if re.fullmatch(r"-?\d+", t):
+            out.append(int(t))
+        elif re.fullmatch(r"-?\d*\.\d+", t):
+            out.append(float(t))
+        else:
+            out.append(t)
+    return out
+
+
+def _layout(objects: list, connections: list, x0: int = 480, y0: int = 240,
+            col: int = 200, row: int = 80):
+    """Lay objects out by graph topology: flow top-to-bottom, parallel nodes
+    side by side, no overlaps. Returns (id -> (x, y), comment_lane_x)."""
+    ids = [o.get("id") for o in objects if o.get("id")]
+    idset = set(ids)
+    indeg = {i: 0 for i in ids}
+    adj = {i: [] for i in ids}
+    for c in connections:
+        f, t = c.get("from"), c.get("to")
+        if f in idset and t in idset and f != t:
+            adj[f].append(t)
+            indeg[t] += 1
+    depth = {i: 0 for i in ids}
+    work = dict(indeg)
+    q = deque([i for i in ids if work[i] == 0])
+    processed = 0
+    while q:
+        u = q.popleft()
+        processed += 1
+        for v in adj[u]:
+            if depth[v] < depth[u] + 1:
+                depth[v] = depth[u] + 1
+            work[v] -= 1
+            if work[v] == 0:
+                q.append(v)
+    if processed < len(ids):  # nodes left in a cycle (feedback): stack below
+        d = (max(depth.values()) if depth else 0) + 1
+        for i in ids:
+            if work[i] > 0:
+                depth[i] = d
+                d += 1
+    by_row: dict = {}
+    for i in ids:
+        by_row.setdefault(depth[i], []).append(i)
+    pos = {}
+    max_col = 0
+    for r, arr in by_row.items():
+        for ci, i in enumerate(arr):
+            pos[i] = (x0 + ci * col, y0 + r * row)
+            if ci > max_col:
+                max_col = ci
+    return pos, x0 + (max_col + 1) * col + 20
+
+
 @mcp.tool()
 def max_init() -> str:
     """Mandatory first call. Returns the orientation guide and unlocks the
@@ -63,9 +123,14 @@ def max_init() -> str:
 @mcp.tool()
 def max_create_object(maxclass: str, args: List[str] = [], x: int = 40, y: int = 40) -> str:
     """Create a Max object box [maxclass args...] at (x, y). Returns its
-    scripting name (e.g. obj_3). Example: max_create_object("cycle~", ["440"])."""
+    scripting name (e.g. obj_3). maxclass is the class itself (cycle~, *~),
+    never the literal word 'object'. Example: max_create_object("cycle~", ["440"])."""
     _require_init()
-    name = _newdefault(maxclass, args, x, y)
+    cls = maxclass
+    rawargs = [str(a) for a in args]
+    if cls in ("object", "newobj"):  # real class is the first arg
+        cls = rawargs.pop(0) if rawargs else ""
+    name = _newdefault(cls, rawargs, x, y)
     return f"created {name}: [{state.objects[name].text}]"
 
 
@@ -73,10 +138,17 @@ def max_create_object(maxclass: str, args: List[str] = [], x: int = 40, y: int =
 def max_create_message(text: str, x: int = 40, y: int = 40) -> str:
     """Create a message box containing `text` at (x, y). Returns its name."""
     _require_init()
+    text = text.replace("\\,", ",")
+    if "," in text:
+        return ("ERROR: a message box created by this tool cannot hold comma "
+                "separators (a comma arrives as a literal character, not a Max "
+                "message separator). For a [line~] envelope use SEPARATE messages, "
+                "e.g. '1 20' (ramp to 1 in 20 ms) and '0 500' (release), triggered "
+                "in turn. Never escape commas.")
     name = state.next_name("msg")
     tx.send("/newdefault", name, int(x), int(y), "message")
     # Reliably set the content: script send <name> set <atoms...>
-    tx.send("/setbox", name, "set", *text.split())
+    tx.send("/setbox", name, "set", *_atomize([t for t in text.split() if t]))
     state.register(MaxObject(name=name, maxclass="message", text=text, x=int(x), y=int(y)))
     return f"created {name}: message [{text}]"
 
@@ -269,6 +341,138 @@ def max_verify() -> str:
     if also_present:
         out.append("other named objects in the patch (hand-added): " + ", ".join(also_present))
     return "\n".join(out)
+
+
+@mcp.tool()
+def max_build_patch(objects: List[dict], connections: List[dict] = [], title: str = "") -> str:
+    """Build a whole patch at once from a graph. The server lays everything out
+    automatically (no overlaps, flow top-to-bottom), wires it, verifies by
+    reading the patch back, and reissues any missing connection itself before
+    reporting. PREFER this to build a patch from scratch; you supply no
+    coordinates. Use the unitary tools only to edit a patch that already exists.
+
+    objects: list of {id, type, args?, text?, comment?}
+      - id: your label, referenced in connections.
+      - type: the Max CLASS itself (cycle~, *~, +~, dac~, metro, number, ...),
+        never the literal word 'object'. Use 'message' or 'comment' for those
+        two box kinds.
+      - text: content for a 'message' or 'comment'.
+      - comment: optional one-line annotation, shown in a side lane.
+    connections: list of {from, outlet, to, inlet} using the ids.
+    title: optional title comment at the top.
+    """
+    _require_init()
+    if not objects:
+        return "ERROR: provide a non-empty 'objects' list."
+
+    y0 = 288 if title else 240
+    pos, comment_x = _layout(objects, connections, y0=y0)
+
+    if title:
+        tn = state.next_name("cmt")
+        tx.send("/newdefault", tn, 480, 244, "comment")
+        tx.send("/setbox", tn, "set", *str(title).split())
+        state.register(MaxObject(name=tn, maxclass="comment", text=str(title), x=480, y=244))
+
+    id2name: dict = {}
+    id2class: dict = {}
+    comma_msgs: list = []
+    lane_y: list = []
+
+    def place_comment(text: str, y: int) -> None:
+        cy = y
+        while any(abs(yy - cy) < 24 for yy in lane_y):
+            cy += 24
+        lane_y.append(cy)
+        cn = state.next_name("cmt")
+        tx.send("/newdefault", cn, comment_x, cy, "comment")
+        tx.send("/setbox", cn, "set", *str(text).split())
+        state.register(MaxObject(name=cn, maxclass="comment", text=str(text), x=comment_x, y=cy))
+
+    # 1) create every object at its computed position
+    for ob in objects:
+        oid = ob.get("id")
+        if not oid:
+            continue
+        x, y = pos.get(oid, (480, y0))
+        typ = ob.get("type") or ob.get("maxclass") or ""
+        if typ == "message":
+            t = str(ob.get("text", "")).replace("\\,", ",")
+            if "," in t:
+                comma_msgs.append(oid)
+            name = state.next_name("msg")
+            tx.send("/newdefault", name, x, y, "message")
+            tx.send("/setbox", name, "set", *_atomize([tk for tk in t.split() if tk]))
+            state.register(MaxObject(name=name, maxclass="message", text=t, x=x, y=y))
+            id2class[oid] = "message"
+        elif typ == "comment":
+            t = str(ob.get("text", ""))
+            name = state.next_name("cmt")
+            tx.send("/newdefault", name, x, y, "comment")
+            tx.send("/setbox", name, "set", *t.split())
+            state.register(MaxObject(name=name, maxclass="comment", text=t, x=x, y=y))
+            id2class[oid] = "comment"
+        else:
+            cls = typ
+            rawargs = [str(a) for a in (ob.get("args") or [])]
+            if cls in ("object", "newobj"):
+                cls = rawargs.pop(0) if rawargs else ""
+            name = _newdefault(cls, rawargs, x, y) if cls else state.next_name("obj")
+            id2class[oid] = cls
+        id2name[oid] = name
+        if ob.get("comment"):
+            place_comment(ob["comment"], y)
+
+    # 2) wire every connection by id
+    requested: list = []
+    skipped: list = []
+    for c in connections:
+        f, t = c.get("from"), c.get("to")
+        sf, st = id2name.get(f), id2name.get(t)
+        if not sf or not st:
+            skipped.append(f"{f}->{t} (unknown id)")
+            continue
+        if id2class.get(f) == "comment" or id2class.get(t) == "comment":
+            skipped.append(f"{f}->{t} (comment)")
+            continue
+        ou = int(c.get("outlet", 0) or 0)
+        il = int(c.get("inlet", 0) or 0)
+        tx.send("/connect", sf, ou, st, il)
+        requested.append((sf, ou, st, il, f, t))
+
+    # 3) verify by reading back; reissue any missing wires (self-heal)
+    def find_missing():
+        try:
+            data = _dump_raw()
+        except RuntimeError:
+            return None
+        have = {(ln.get("src"), ln.get("outlet"), ln.get("dst"), ln.get("inlet"))
+                for ln in data.get("lines", [])}
+        return [r for r in requested if (r[0], r[1], r[2], r[3]) not in have]
+
+    missing = find_missing()
+    passes = 0
+    while missing and passes < 2:
+        for (sf, ou, st, il, f, t) in missing:
+            tx.send("/connect", sf, ou, st, il)
+        missing = find_missing()
+        passes += 1
+
+    if missing is None:
+        return (f"built {len(objects)} objects, issued {len(requested)} "
+                "connections (could not read back to verify)")
+    present = len(requested) - len(missing)
+    rep = f"built {len(objects)} objects; {present}/{len(requested)} connections verified"
+    if missing:
+        rep += (". STILL MISSING (reissue just these with max_connect; do NOT clear): "
+                + "; ".join(f"{r[4]}:{r[1]} -> {r[5]}:{r[3]}" for r in missing))
+    if skipped:
+        rep += ". skipped: " + "; ".join(skipped)
+    if comma_msgs:
+        rep += (". WARNING: message(s) " + ", ".join(comma_msgs)
+                + " contain a comma (a literal character, not a separator); "
+                "use separate messages for a line~ envelope.")
+    return rep
 
 
 _OBJ_DB = None
