@@ -2,8 +2,8 @@
   "mcpServers": {
     "maxmsp": {
       "command": "uv",
-      "args": ["--directory", "${PLUGIN_DIR}", "run", "python", "-m", "maxmsp_mcp.server"],
-      "env": { "MAX_HOST": "127.0.0.1", "MAX_PORT": "7400" }
+      "args": ["--directory", "${CLAUDE_PLUGIN_ROOT}", "run", "python", "-m", "maxmsp_mcp.server"],
+      "env": { "MAX_HOST": "127.0.0.1", "MAX_PORT": "7400", "MAX_RETURN_PORT": "7401" }
     }
   }
 }

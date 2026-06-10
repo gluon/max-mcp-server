@@ -1,0 +1,27 @@
+# Virtualenv — uv rebuilds it at runtime from pyproject.toml + uv.lock.
+# Never ship it (platform-specific binaries, huge).
+.venv/
+
+# Secrets — holds the Anthropic API key. MUST NOT ship.
+max/chat.config.json
+
+# Machine-specific generated doc DB (gitignored). A user builds their own
+# from their Max install with tools/build_maxref_db.py.
+maxmsp_mcp/objects.json
+
+# Build / cache / VCS junk
+.git/
+.gitignore
+.gitattributes
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.mcpb
+
+# Tests aren't needed at runtime
+tests/
+
+# Stray artifact
+0

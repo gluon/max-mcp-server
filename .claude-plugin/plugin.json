@@ -1,8 +1,7 @@
 {
   "name": "maxmsp",
-  "version": "0.1.0",
-  "description": "Build and drive Max/MSP patches from Claude (thispatcher over OSC/UDP, no externals).",
+  "version": "0.4.0",
+  "description": "Build and drive Max/MSP patches from Claude: thispatcher scripting over OSC/UDP, live patch read-back, and object-reference grounding. No externals.",
   "author": "Julien Bayle",
-  "skills": ["./skills/maxmsp"],
-  "mcp": "./.mcp.json"
+  "keywords": ["max", "msp", "maxmsp", "cycling74", "audio", "music", "synthesis", "mcp"]
 }

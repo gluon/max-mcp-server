@@ -2,6 +2,6 @@
   "name": "maxmsp-marketplace",
   "owner": "gluon",
   "plugins": [
-    { "name": "maxmsp", "source": "./", "description": "Max/MSP MCP server + skill." }
+    { "name": "maxmsp", "source": "./", "description": "Max/MSP MCP server + skill: build, wire, read back and play Max patches from Claude." }
   ]
 }

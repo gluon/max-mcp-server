@@ -1,7 +1,7 @@
 {
   "manifest_version": "0.1",
   "name": "maxmsp-mcp",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Build and drive Max/MSP patches from Claude.",
   "author": { "name": "Julien Bayle" },
   "server": {
@@ -10,7 +10,7 @@
     "mcp_config": {
       "command": "uv",
       "args": ["--directory", "${__dirname}", "run", "python", "-m", "maxmsp_mcp.server"],
-      "env": { "MAX_HOST": "127.0.0.1", "MAX_PORT": "7400" }
+      "env": { "MAX_HOST": "127.0.0.1", "MAX_PORT": "7400", "MAX_RETURN_PORT": "7401" }
     }
   }
 }
