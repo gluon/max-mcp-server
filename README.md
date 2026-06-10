@@ -277,7 +277,7 @@ Change a port in both the env var and the matching object in the host patch.
 | Key                 | Default                | Meaning |
 | ------------------- | ---------------------- | ------- |
 | `anthropic_api_key` | —                      | your API key (file is git-ignored) |
-| `model`             | `claude-sonnet-4-5`    | model id used by the chat |
+| `model`             | `claude-sonnet-4-6`    | model id used by the chat |
 | `api_url`           | Anthropic messages API | point at a local endpoint to use a local model |
 | `max_tokens`        | `4096`                 | response budget per turn |
 | `port`              | `5173`                 | local HTTP port the `[jweb]` UI connects to |
