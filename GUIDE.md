@@ -12,17 +12,28 @@ cheat-sheet, and a cookbook. Follow it over anything you might infer.
 - Before extending or editing an existing patch, **read it back first** so you
   build on what is really there, including objects the user added by hand.
 - **To build a patch from scratch, use `build_patch`.** Describe the whole
-  graph — every object (with a short `id`, its `type`, `args`, and an optional
-  `comment`) and every connection (by `id`). The code places everything
-  automatically with no overlaps, wires it, and reports any connection that did
-  not take so you can reissue just those. You never compute coordinates. Use the
-  unitary tools (`create_object`, `connect`, ...) only to edit a patch that
-  already exists.
+  graph — every object (with a short `id`, its `type` = the Max class itself
+  such as `cycle~` or `*~`, never the literal word `object`; its `args`; and an
+  optional `comment`) and every connection (by `id`). The code places everything
+  automatically with no overlaps, wires it, verifies by reading back, and
+  **reissues any missing connection itself** before reporting. You never compute
+  coordinates. If the report still says "STILL MISSING", reissue only those
+  specific connections with `connect` — **do NOT call `clear_canvas` and rebuild,
+  and do not run `build_patch` again**, or you will create duplicate objects and
+  lose any comments. Use the unitary tools only to edit a patch that already
+  exists.
 - **Name your objects.** When you create an object, pass a short meaningful
   `name` label (e.g. `freq`, `pack_main`, `carrier`) and connect using those
   labels. Do not try to track auto-generated `obj_N` names across many creates;
   that is where wiring goes wrong. A `connect` to an unknown name returns an
   error listing the names you have created — read it and correct the call.
+- **No comma messages.** A message box created by these tools stores plain
+  text; a comma becomes a literal character, not a Max message separator, and
+  must never be escaped with a backslash. Do not build messages like
+  `0, 1 20, 0 500`. For a `[line~]` envelope, use SEPARATE messages — e.g.
+  `[1 20(` (ramp to 1 in 20 ms, the attack) and `[0 500(` (ramp to 0 in 500 ms,
+  the release) — triggered in turn (the release after the attack, via a
+  `[delay]` or on note-off).
 - **Comments have no inlets or outlets.** Never connect anything to or from a
   comment. Do not create bare `set` messages that go nowhere.
 - **When unsure of an object's signature** (inlet/outlet order, argument types,

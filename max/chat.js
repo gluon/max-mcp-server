@@ -118,7 +118,7 @@ const TOOLS = [
       input_schema: { type: "object", properties: {
           objects: { type: "array", description: "every box to create", items: { type: "object", properties: {
               id: { type: "string", description: "your label, referenced in connections" },
-              type: { type: "string", description: "maxclass: cycle~, *~, +~, dac~, metro, counter, sel, number, flonum, message, button, toggle, ..." },
+              type: { type: "string", description: "the Max object CLASS itself, e.g. cycle~, *~, +~, dac~, metro, counter, sel, sig~, number, flonum, button, toggle, slider. Use 'message' or 'comment' ONLY for those two box kinds. Never pass the literal word 'object'." },
               args: { type: "array", items: { type: "string" }, description: "typed-in arguments (for object boxes)" },
               text: { type: "string", description: "content (for type 'message' or 'comment')" },
               comment: { type: "string", description: "optional short annotation, shown in a side lane" } },
@@ -227,22 +227,29 @@ async function execTool(name, input) {
     switch (name) {
         case "create_object": {
             const nm = nextName("obj");
-            const args = atomize((input.args || []).map(String));
-            Max.outlet("/newdefault", nm, x, y, input.maxclass, ...args);
-            if (input.maxclass === "comment" && args.length) {
+            let cls = input.maxclass;
+            const rawargs = (input.args || []).map(String);
+            if (cls === "object" || cls === "newobj") cls = rawargs.shift() || "";
+            const args = atomize(rawargs);
+            Max.outlet("/newdefault", nm, x, y, cls, ...args);
+            if (cls === "comment" && args.length) {
                 Max.outlet("/setbox", nm, "set", ...args);
             }
-            register(nm, input.maxclass, input.name);
+            register(nm, cls, input.name);
             const label = input.name || nm;
-            return "created '" + label + "' (" + nm + "): [" + [input.maxclass].concat(args).join(" ") + "]";
+            return "created '" + label + "' (" + nm + "): [" + [cls].concat(args).join(" ") + "]";
         }
         case "create_message": {
+            const text = String(input.text).replace(/\\,/g, ",");
+            if (text.indexOf(",") !== -1) {
+                return "ERROR: a message box created by this tool cannot hold comma separators (a comma arrives as a literal character, not a Max message separator). For a [line~] envelope use SEPARATE messages, e.g. '1 20' (ramp to 1 in 20 ms) and '0 500' (ramp to 0 in 500 ms), triggered in turn. Never escape commas.";
+            }
             const nm = nextName("msg");
             Max.outlet("/newdefault", nm, x, y, "message");
-            Max.outlet("/setbox", nm, "set", ...atomize(String(input.text).split(" ")));
+            Max.outlet("/setbox", nm, "set", ...atomize(text.split(" ")));
             register(nm, "message", input.name);
             const label = input.name || nm;
-            return "created '" + label + "' (" + nm + "): message [" + input.text + "]";
+            return "created '" + label + "' (" + nm + "): message [" + text + "]";
         }
         case "create_comment": {
             const nm = nextName("obj");
@@ -308,22 +315,32 @@ async function execTool(name, input) {
                 Max.outlet("/setbox", tn, "set", ...String(input.title).split(" ").filter(Boolean));
             }
             // 1) create every object at its computed position
+            const commaMsgs = [];
             for (const ob of objs) {
                 const p = pos.get(ob.id) || { x: 480, y: Y0 };
                 const type = ob.type || ob.maxclass;
                 let nm, mc;
                 if (type === "message") {
+                    const text = String(ob.text || "").replace(/\\,/g, ",");
+                    if (text.indexOf(",") !== -1) commaMsgs.push(ob.id);
                     nm = nextName("msg"); mc = "message";
                     Max.outlet("/newdefault", nm, p.x, p.y, "message");
-                    Max.outlet("/setbox", nm, "set", ...atomize(String(ob.text || "").split(" ").filter(Boolean)));
+                    Max.outlet("/setbox", nm, "set", ...atomize(text.split(" ").filter(Boolean)));
                 } else if (type === "comment") {
                     nm = nextName("obj"); mc = "comment";
                     Max.outlet("/newdefault", nm, p.x, p.y, "comment");
                     Max.outlet("/setbox", nm, "set", ...String(ob.text || "").split(" ").filter(Boolean));
                 } else {
-                    nm = nextName("obj"); mc = type;
-                    const args = atomize((ob.args || []).map(String));
-                    Max.outlet("/newdefault", nm, p.x, p.y, type, ...args);
+                    nm = nextName("obj");
+                    let cls = type;
+                    const rawargs = (ob.args || []).map(String);
+                    // The model sometimes uses the generic kind "object" and puts
+                    // the real class in args (-> box text "object cycle~ 440",
+                    // which fails as class jbogus). Recover the real class.
+                    if (cls === "object" || cls === "newobj") cls = rawargs.shift() || "";
+                    mc = cls;
+                    const args = atomize(rawargs);
+                    Max.outlet("/newdefault", nm, p.x, p.y, cls, ...args);
                 }
                 register(nm, mc, ob.id);
                 if (ob.comment) placeComment(ob.comment, p.y);
@@ -338,23 +355,34 @@ async function execTool(name, input) {
                 Max.outlet("/connect", src.name, ou, dst.name, il);
                 requested.push({ src: src.name, ou, dst: dst.name, il, from: c.from, to: c.to });
             }
-            // 3) let thispatcher flush, then read back and verify
-            await new Promise((r) => setTimeout(r, 400));
-            const json = await readPatch(1800);
-            let present = 0; const missing = [];
-            try {
-                const patch = JSON.parse(json);
-                const have = new Set((patch.lines || []).map((l) => l.src + "|" + l.outlet + "|" + l.dst + "|" + l.inlet));
-                requested.forEach((r) => {
-                    if (have.has(r.src + "|" + r.ou + "|" + r.dst + "|" + r.il)) present++;
-                    else missing.push(r.from + ":" + r.ou + " -> " + r.to + ":" + r.il);
-                });
-            } catch (e) {
-                return "built " + objs.length + " objects, issued " + requested.length + " connections (verify failed: " + e.message + ")";
+            // 3) flush, then verify by reading back; self-heal missing wires.
+            //    Reading back too early shows no cords (thispatcher applies the
+            //    script connects asynchronously), so we poll and reissue rather
+            //    than trust a single early read — otherwise build looks failed
+            //    when it is merely not flushed yet.
+            async function findMissing() {
+                await new Promise((r) => setTimeout(r, 500));
+                let json;
+                try { json = await readPatch(1800); } catch (e) { return null; }
+                try {
+                    const patch = JSON.parse(json);
+                    const have = new Set((patch.lines || []).map((l) => l.src + "|" + l.outlet + "|" + l.dst + "|" + l.inlet));
+                    return requested.filter((r) => !have.has(r.src + "|" + r.ou + "|" + r.dst + "|" + r.il));
+                } catch (e) { return null; }
             }
+            let missing = await findMissing();
+            for (let pass = 0; pass < 2 && missing && missing.length; pass++) {
+                missing.forEach((r) => Max.outlet("/connect", r.src, r.ou, r.dst, r.il));
+                missing = await findMissing();
+            }
+            if (missing === null) {
+                return "built " + objs.length + " objects, issued " + requested.length + " connections (could not read back to verify)";
+            }
+            const present = requested.length - missing.length;
             let rep = "built " + objs.length + " objects; " + present + "/" + requested.length + " connections verified";
-            if (missing.length) rep += ". MISSING (reissue with connect): " + missing.join("; ");
+            if (missing.length) rep += ". STILL MISSING (reissue just these with connect; do NOT clear the patch): " + missing.map((r) => r.from + ":" + r.ou + " -> " + r.to + ":" + r.il).join("; ");
             if (skipped.length) rep += ". skipped: " + skipped.join("; ");
+            if (commaMsgs.length) rep += ". WARNING: message(s) " + commaMsgs.join(", ") + " contain a comma, which becomes a literal character, not a separator. For a line~ envelope use separate messages ('1 20', '0 500').";
             return rep;
         }
         case "lookup_object": {
