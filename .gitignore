@@ -17,8 +17,11 @@ pic*.png
 
 ROADMAP_v0.5.md
 
-ROADMAP_v0.5.md
-
-ROADMAP_v0.5.md
-
-ROADMAP_v0.5.md
+# personal experiment/analysis scripts
+build_delay_*.py
+patch_host_*.py
+test_*.py
+*_analysis.md
+tessella_full.json
+experiment_summary.md
+max/mcp_host.maxpat.bak
