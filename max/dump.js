@@ -1,11 +1,14 @@
 // dump.js — patch reader for maxmsp-mcp (load in a [v8 dump.js] object).
-// On bang (or "dump"), walks the TOP-LEVEL patcher and emits one OSC message:
-//   /patch <json>
-// wired to [udpsend 127.0.0.1 7401] so the server can read patch state.
+// On bang (or "dump"), walks the TOP-LEVEL patcher and emits one or more
+// OSC messages carrying the full patch state as JSON.
 //
-// The [v8] may live inside the [p mcp-server] machinery subpatcher; we walk up
-// to the top-level patcher, which is the workspace where objects are built
-// (the top-level [thispatcher] creates them there).
+// SMALL patches (≤ MAX_CHUNK bytes): single /patch <json> message.
+// LARGE patches: /patch_chunk <index> <total> <partial_json> messages,
+//   where total ≥ 2, indices 0..total-1, payloads concatenated reassemble
+//   the full JSON string.
+//
+// Wiring in mcp_host.maxpat:
+//   [v8 dump.js] -> [udpsend 127.0.0.1 7401]
 //
 // Uses the v8 JS API (docs.cycling74.com/apiref/js):
 //   Maxobj.boxtext, Maxobj.patchcords ({inputs, outputs}), MaxobjConnection,
@@ -16,7 +19,8 @@
 inlets = 1;
 outlets = 1;
 
-var DEBUG = 0; // set to 1 to post the JSON to the Max Console on each dump
+var DEBUG = 0;       // set to 1 to post JSON to Max Console on each dump
+var MAX_CHUNK = 56000;  // safe UDP payload — 56 KB leaves room for OSC framing
 
 function bang() { dump(); }
 function msg_int() { dump(); }
@@ -56,8 +60,18 @@ function dump() {
     }
 
     var payload = JSON.stringify({ patcher: "top", objects: objects, lines: connections });
-    if (DEBUG) post("dump:", payload, "\n");
-    outlet(0, "/patch", payload);
+
+    if (payload.length <= MAX_CHUNK) {
+        if (DEBUG) post("dump:", payload.length, "bytes (single)\n");
+        outlet(0, "/patch", payload);
+    } else {
+        var total = Math.ceil(payload.length / MAX_CHUNK);
+        if (DEBUG) post("dump:", payload.length, "bytes,", total, "chunks\n");
+        for (var i = 0; i < total; i++) {
+            var chunk = payload.substring(i * MAX_CHUNK, (i + 1) * MAX_CHUNK);
+            outlet(0, "/patch_chunk", i, total, chunk);
+        }
+    }
 }
 
 // Filter machinery: anything named mcp_*, and the [p mcp-server] subpatcher box.

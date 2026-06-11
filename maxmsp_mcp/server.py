@@ -19,12 +19,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from collections import deque
 from typing import List, Optional
 
 from mcp.server.fastmcp import FastMCP
 
 from .guide import GUIDE
+from . import extensions
 from .patch_state import MaxObject, PatchState
 from .transport import MaxReturn, MaxTransport
 
@@ -32,6 +34,9 @@ mcp = FastMCP("maxmsp")
 state = PatchState()
 tx = MaxTransport()
 rx: Optional[MaxReturn] = None
+
+# Extension modules (wired after function definitions)
+_EXT = None
 
 _NOT_INIT = (
     "Call max_init first. It returns the orientation guide and unlocks the "
@@ -202,13 +207,65 @@ def max_create_slider(x: int = 40, y: int = 40) -> str:
 
 @mcp.tool()
 def max_connect(from_name: str, outlet: int, to_name: str, inlet: int) -> str:
-    """Wire from_name:outlet -> to_name:inlet (0-indexed, left to right)."""
+    """Wire from_name:outlet -> to_name:inlet (0-indexed, left to right).
+
+    KNOWN LIMITATION: !+~ (legacy sum-of-signals) does NOT accept 'script
+    connect'. Use +~ instead. If this connection involves !+~ and fails,
+    the server will warn you.
+    """
+    import time as _time
     _require_init()
     for n in (from_name, to_name):
         if n not in state.objects:
             raise RuntimeError(f"unknown object '{n}'. Known: {state.names()}")
+
+    # Check for known problematic object classes
+    warnings: list = []
+    for n in (from_name, to_name):
+        obj = state.objects.get(n)
+        if obj and obj.maxclass == "!+~":
+            warnings.append(
+                f"NOTE: '{n}' is a [!+~] object. Max's 'script connect' does NOT "
+                f"work with !+~. If the connection fails, replace it with +~."
+            )
+
     tx.send("/connect", from_name, int(outlet), to_name, int(inlet))
-    return f"connected {from_name}:{outlet} -> {to_name}:{inlet}"
+    _time.sleep(0.05)
+
+    # Verify: dump and check the connection exists
+    try:
+        data = _dump_raw()
+        have = {(ln.get("src"), ln.get("outlet"), ln.get("dst"), ln.get("inlet"))
+                for ln in data.get("lines", [])}
+        key = (from_name, int(outlet), to_name, int(inlet))
+        if key in have:
+            result = f"connected {from_name}:{outlet} -> {to_name}:{inlet} (verified)"
+        else:
+            # Reissue once
+            tx.send("/connect", from_name, int(outlet), to_name, int(inlet))
+            _time.sleep(0.1)
+            data2 = _dump_raw()
+            have2 = {(ln.get("src"), ln.get("outlet"), ln.get("dst"), ln.get("inlet"))
+                     for ln in data2.get("lines", [])}
+            if key in have2:
+                result = f"connected {from_name}:{outlet} -> {to_name}:{inlet} (reissued, now ok)"
+            else:
+                result = (
+                    f"WARNING: {from_name}:{outlet} -> {to_name}:{inlet} could not be "
+                    f"verified after two attempts. Check the Max Console for errors. "
+                    f"If either object is !+~, replace with +~."
+                )
+    except RuntimeError:
+        # Cannot read back, report basic result
+        result = f"connected {from_name}:{outlet} -> {to_name}:{inlet} (could not verify)"
+
+    if warnings:
+        result += "\n" + "\n".join(warnings)
+    # Record for undo
+    from .operations import Entry
+    state.history.push(Entry(kind='connect', description=f'connected {from_name}:{outlet} -> {to_name}:{inlet}',
+                              forward=dict(from_name=from_name, outlet=outlet, to_name=to_name, inlet=inlet)))
+    return result
 
 
 @mcp.tool()
@@ -233,6 +290,7 @@ def max_set_dsp(on: bool) -> str:
     """Start or stop global audio DSP."""
     _require_init()
     tx.send("/dsp", 1 if on else 0)
+    state.dsp_on = on
     return f"dsp {'on' if on else 'off'}"
 
 
@@ -282,21 +340,50 @@ def _get_rx() -> MaxReturn:
 
 
 def _dump_raw() -> dict:
-    """Ask Max to dump the patch and return the parsed structure."""
+    """Ask Max to dump the patch and return the parsed structure.
+
+    Supports both single-message (/patch) and chunked (/patch_chunk)
+    responses from dump.js. Chunked messages are reassembled in order.
+    """
+    import time as _time
+
     listener = _get_rx()
     listener.flush()
     tx.send("/dump")
-    try:
-        address, args = listener.wait(2.0)
-    except OSError:
+
+    deadline = _time.time() + 4.0
+    chunks: dict = {}
+    max_chunks: int | None = None
+
+    while _time.time() < deadline:
+        try:
+            address, args = listener.wait(0.8)
+        except OSError:
+            continue
+
+        if address == "/patch" and args:
+            return json.loads(args[0])
+
+        if address == "/patch_chunk" and len(args) >= 3:
+            index = int(args[0])
+            total = int(args[1])
+            data = str(args[2])
+            chunks[index] = data
+            max_chunks = total
+            if len(chunks) == max_chunks:
+                full = "".join(chunks[i] for i in range(max_chunks))
+                return json.loads(full)
+
+    if chunks:
         raise RuntimeError(
-            "No reply from Max. Check that mcp_host.maxpat is open, that "
-            "[v8 dump.js] loaded (dump.js next to the patch), and that "
-            "[udpsend 127.0.0.1 7401] is wired to it."
+            f"Dump timed out. Got {len(chunks)}/{max_chunks or '?'} chunks. "
+            "The patch may be very large. Try increasing the timeout."
         )
-    if address != "/patch" or not args:
-        raise RuntimeError(f"Unexpected reply from Max: {address} {args}")
-    return json.loads(args[0])
+    raise RuntimeError(
+        "No reply from Max. Check that mcp_host.maxpat is open, that "
+        "[v8 dump.js] loaded (dump.js next to the patch), and that "
+        "[udpsend 127.0.0.1 7401] is wired to it."
+    )
 
 
 @mcp.tool()
@@ -426,6 +513,7 @@ def max_build_patch(objects: List[dict], connections: List[dict] = [], title: st
     # 2) wire every connection by id
     requested: list = []
     skipped: list = []
+    bang_plus_warn: list = []  # track !+~ warnings
     for c in connections:
         f, t = c.get("from"), c.get("to")
         sf, st = id2name.get(f), id2name.get(t)
@@ -435,6 +523,13 @@ def max_build_patch(objects: List[dict], connections: List[dict] = [], title: st
         if id2class.get(f) == "comment" or id2class.get(t) == "comment":
             skipped.append(f"{f}->{t} (comment)")
             continue
+        # Warn about !+~ — known script connect limitation
+        for cid, side in ((f, "source"), (t, "target")):
+            cls = id2class.get(cid)
+            if cls == "!+~":
+                bang_plus_warn.append(
+                    f"object '{cid}' is !+~ (may fail to connect; use +~ instead)"
+                )
         ou = int(c.get("outlet", 0) or 0)
         il = int(c.get("inlet", 0) or 0)
         tx.send("/connect", sf, ou, st, il)
@@ -459,19 +554,22 @@ def max_build_patch(objects: List[dict], connections: List[dict] = [], title: st
         passes += 1
 
     if missing is None:
-        return (f"built {len(objects)} objects, issued {len(requested)} "
-                "connections (could not read back to verify)")
-    present = len(requested) - len(missing)
-    rep = f"built {len(objects)} objects; {present}/{len(requested)} connections verified"
-    if missing:
-        rep += (". STILL MISSING (reissue just these with max_connect; do NOT clear): "
-                + "; ".join(f"{r[4]}:{r[1]} -> {r[5]}:{r[3]}" for r in missing))
+        rep = (f"built {len(objects)} objects, issued {len(requested)} "
+               "connections (could not read back to verify)")
+    else:
+        present = len(requested) - len(missing)
+        rep = f"built {len(objects)} objects; {present}/{len(requested)} connections verified"
+        if missing:
+            rep += (". STILL MISSING (reissue just these with max_connect; do NOT clear): "
+                    + "; ".join(f"{r[4]}:{r[1]} -> {r[5]}:{r[3]}" for r in missing))
     if skipped:
         rep += ". skipped: " + "; ".join(skipped)
     if comma_msgs:
         rep += (". WARNING: message(s) " + ", ".join(comma_msgs)
                 + " contain a comma (a literal character, not a separator); "
                 "use separate messages for a line~ envelope.")
+    if bang_plus_warn:
+        rep += ". NOTE (!+~): " + "; ".join(bang_plus_warn)
     return rep
 
 
@@ -536,6 +634,11 @@ def max_doc(name: str) -> str:
 
 def main() -> None:
     mcp.run()
+
+
+# Register SOTA extension tools
+import sys
+extensions.init(sys.modules[__name__])
 
 
 if __name__ == "__main__":

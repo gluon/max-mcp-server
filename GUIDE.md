@@ -46,7 +46,12 @@ cheat-sheet, and a cookbook. Follow it over anything you might infer.
   to the Max console; the patch may be left incomplete. So after wiring any
   non-trivial patch, call `read_patch`, check that every connection you intended
   is present, and reissue any that are missing. Only then tell the user it is
-  done.
+  done. (As of build v0.5, `max_connect` automatically verifies each connection
+  and reissues once if missing.)
+- **Known limitation: `!+~`** — Max's `script connect` does NOT work with the
+  `!+~` object (legacy sum-of-signals). Use `+~` instead for any patch built
+  via the MCP server. If you accidentally use `!+~`, the server now detects it
+  and emits a warning. Connections involving `+~` are fully supported.
 
 ## Max execution model (get this right)
 
